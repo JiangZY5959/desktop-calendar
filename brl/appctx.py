@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from . import theme as T
 from . import store as S
 from . import data as D
+from . import appdata as AD
 from .mainwin import MainWindow, APP_NAME
 
 _ctx = None
@@ -247,11 +248,36 @@ class Context(object):
         self.win.open_settings()
 
     def quit(self):
+        if self._quit:
+            return
         self._quit = True
+        # 顺序很关键：
+        #   ① 先把缺失的数据补回来——QSettings 的 sync 以磁盘文件为准做
+        #      合并，文件要是已经被外部清掉（升级、误删），这里不补的话，
+        #      下面保存窗口位置的一次 sync 会把其余设置全部带走；
+        #   ② 再关窗口（触发保存位置尺寸）；
+        #   ③ 最后落盘设置、注销实例。升级时旧实例就是这样被"请"出去的，
+        #     直接 SIGKILL 会把刚改过的设置丢在内存里。
+        try:
+            AD.ensure_data()
+        except Exception:
+            pass
+        try:
+            self.win.close()
+        except Exception:
+            pass
+        try:
+            st = self.store.settings()
+            st.sync()
+        except Exception:
+            pass
+        try:
+            AD.clear_pid(only_self=True)
+        except Exception:
+            pass
         try:
             if self.tray:
                 self.tray.hide()
-            self.win.close()
         except Exception:
             pass
         self.app.quit()
@@ -292,9 +318,49 @@ def _install_excepthook():
     sys.excepthook = hook
 
 
+def _install_signal_handlers(app, ctx):
+    """让 SIGTERM/SIGINT 变成"保存后正常退出"，而不是被系统直接杀掉。
+
+    升级时安装脚本就是发 SIGTERM 请旧版本让位的：旧版本若不保存就死，
+    用户刚改的设置会跟着内存一起没了。
+    """
+    import signal
+    from PyQt5.QtCore import QTimer
+
+    def _on_signal(signum, frame):
+        # singleShot 把真正的退出动作排进事件循环，避免在信号上下文里
+        # 直接动 Qt 对象（那不是线程/信号安全的做法）。
+        try:
+            QTimer.singleShot(0, ctx.quit)
+        except Exception:
+            try:
+                app.quit()
+            except Exception:
+                pass
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _on_signal)
+        except (ValueError, OSError, AttributeError):
+            pass
+
+    # 心跳定时器：事件循环得周期性醒来，Python 才有机会执行上面那个处理器
+    try:
+        tick = QTimer(app)
+        tick.setInterval(400)
+        tick.timeout.connect(lambda: None)
+        tick.start()
+        return tick
+    except Exception:
+        return None
+
+
 def main():
     global _ctx
     _install_excepthook()
+    # 先请旧实例保存退出。少了这一步，升级后新旧两个进程会同时写同一份
+    # 配置和待办库，互相覆盖——就是"升级完待办没了"的真正来源。
+    AD.take_over(timeout=4.0)
     app = QApplication(sys.argv)
     install_zh_translator(app)
     app.setApplicationName('desktop-calendar')
@@ -303,4 +369,17 @@ def main():
     app.setQuitOnLastWindowClosed(False)
     _ctx = Context(app)
     _ctx.start()
-    return app.exec_(), _ctx
+    _install_signal_handlers(app, _ctx)
+    try:
+        from . import __version__ as _ver
+    except Exception:
+        _ver = ''
+    AD.write_pid(_ver)
+    try:
+        code = app.exec_()
+    finally:
+        try:
+            AD.clear_pid(only_self=True)
+        except Exception:
+            pass
+    return code, _ctx

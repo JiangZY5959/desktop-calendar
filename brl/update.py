@@ -411,3 +411,27 @@ def restart_command():
     if exe:
         return [exe]
     return [sys.executable, '-m', 'brl']
+
+
+def relaunch(delay=1.0, env=None):
+    """另起一个独立进程，delay 秒后把新版本拉起来。
+
+    关键在于「等旧进程先走」：新版本起来时会把还在跑的旧版本请出去，
+    但更稳妥的是让旧版本先保存退出、新的再接手，两者不并存，
+    配置与待办库就不会被两份内存状态互相覆盖。
+    """
+    cmd = restart_command()
+    argv = ['/bin/sh', '-c',
+            'sleep %g; exec "$0" "$@"' % max(0.2, float(delay))]
+    argv.extend(cmd)
+    try:
+        subprocess.Popen(argv,
+                         stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL,
+                         start_new_session=True,
+                         close_fds=True,
+                         env=env or install_env())
+        return True, u' '.join(cmd)
+    except Exception as e:
+        return False, u'%s' % (e,)

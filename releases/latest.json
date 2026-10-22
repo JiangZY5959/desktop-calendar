@@ -1,10 +1,10 @@
 {
-  "version": "1.4.0.2",
-  "tag": "v1.4.0.2",
-  "file": "desktop-calendar_1.4.0.2_arm64.deb",
-  "size": 76724,
-  "sha256": "1fbc9d3bed923e9a83da940ea94a20357de2e48e09655ac59cc3ad2e266aa147",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/52a8f8ab4497f90cc798695c01f7ad92bfb3c96a/releases/desktop-calendar_1.4.0.2_arm64.deb",
+  "version": "1.4.1.0",
+  "tag": "v1.4.1.0",
+  "file": "desktop-calendar_1.4.1.0_arm64.deb",
+  "size": 85180,
+  "sha256": "113c90073a13ef57bc75b093bd759043b843a5d8e174d4f4e11c5a08ea004c75",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/c247f04c4a5845b50d2cf21e0eef8552f95858b1/releases/desktop-calendar_1.4.1.0_arm64.deb",
   "released": "2026-10-22",
-  "notes": "· 修复\"安装后没有弹出询问\"：之前安装脚本依赖 zenity，而很多 UOS 机器（包括本项目的开发机）根本没装 zenity，也没有 /tmp/.X11-unix socket 文件，两个条件全不成立，询问被静默跳过\n· 现在改用软件自带的询问窗口（PyQt5 自绘，与软件同一观感）：一个窗口勾选「开机自动启动」与「立即运行」，不再连弹两次；60 秒无操作自动按\"稍后\"处理\n· 三级兜底：自带对话框 → zenity（有才用）→ 终端提问（终端里安装时）；全都不可用则留到首次启动时补问一次是否开机自启\n· 升级覆盖安装时不再重复询问；无人值守安装（apt 静默）不会被弹窗卡住\n· 顺带：X 显示探测改为真实 XOpenDisplay 试连（UOS 的 X 走 abstract socket，/tmp/.X11-unix 是空的）"
+  "notes": "· 升级时保留老版本的待办与设置：升级前自动把待办库与设置备份一份（root 安装放 /var/backups/desktop-calendar，否则在家目录 ~/.desktop-calendar-backup，保留最近 5 份）；装完发现文件缺失或为空就自动补回来。卸载、甚至彻底清除（purge）都不再动用户数据\n· 装完自动\"关旧开新\"：升级收尾脚本先请正在运行的旧版本保存退出（软件收到 SIGTERM 后保存窗口位置与设置再退出，2 秒内不走的才强制结束），等它真正退出、数据补齐后，再把新版本拉起来。之前升级完旧进程还挂在后台，新旧两个进程同时写同一份配置和待办库互相覆盖——看起来就像\"升级完待办和设置都没了\"，根因在此\n· 进程识别只认日历本体：按\"进程名是解释器 + 启动参数带 -m brl\"识别，终端里敲 sudo dpkg -i desktop-calendar_xxx.deb 的 shell、正在装包的 dpkg 都不会被误伤；僵尸进程（父进程没来收尸）不再被当成\"死赖着不走\"\n· 单实例接管：双击再开一个日历时，也会先请旧实例保存退出再接手，始终只有一个在跑\n· 更新弹窗换肤：检查更新 / 下载进度 / 安装中三个弹窗从深色底改为与「选项设置」一致的浅色卡片（#F2F6FC 底、白底细边按钮、蓝色主按钮），不再又黑又突兀\n· 更新完成后自动重启：不再弹\"是否重新打开\"的问句，装好直接换新版本；安装脚本没接手时（比如走图形安装器）软件自己兜底拉起\n· 新增 brl/appdata.py（数据保护模块）与 /usr/bin/desktop-calendar-upgrade（安装收尾脚本，preinst 备份 / postinst 关旧恢复开新 / prerm 停实例 / postrm 留数据）\n· 新增命令行维护参数：--quit（请正在运行的实例保存退出）、--instances、--backup、--ensure、--pid\n· 验证脚本新增 v20 分节（升级保护与重启，30 项断言，含端到端\"旧实例在跑 → 数据被清空 → 装完自动关旧、恢复、开新\"）"
 }

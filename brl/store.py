@@ -38,6 +38,7 @@ class Store(object):
         with self._conn:
             self._conn.executescript(SCHEMA)
         self._lock = threading.Lock()
+        self._qs = None
         self._apply_defaults()
 
     # ---------------- settings ----------------
@@ -62,8 +63,14 @@ class Store(object):
     def settings(self):
         if QSettings is None:
             return None
-        p = os.path.join(D.config_dir(), 'calendar.ini')
-        return QSettings(p, QSettings.IniFormat)
+        # 进程内共享一个 QSettings 实例。
+        # 之前每次调用都新建，新对象会从文件重新读取；一旦文件在进程
+        # 存活期间被外部动过（比如升级时被清空再恢复），退出时 sync
+        # 就只写后加的那几个键，其余设置全部丢失。
+        if self._qs is None:
+            p = os.path.join(D.config_dir(), 'calendar.ini')
+            self._qs = QSettings(p, QSettings.IniFormat)
+        return self._qs
 
     # ---------------- todo CRUD ----------------
     def _rows(self, cur):

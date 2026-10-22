@@ -36,6 +36,7 @@ SECTIONS = [
     ('v17', '安装流程与版本一致性'),
     ('v18', '取色盘与X11窗口行为'),
     ('v19', '检查更新'),
+    ('v20', '升级保护与重启'),
     ('data', '数据层自检'),
     ('e2e', '自启动端到端'),
     ('lint', '命名一致性'),
@@ -2696,6 +2697,228 @@ with contextlib.redirect_stdout(buf):
 ck('⑩.--check-update 正常', handled and code == 0 and '9.9.9.9' in buf.getvalue(),
    buf.getvalue())
 U.fetch_manifest = _real_fm
+
+print()
+print('结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))
+if bad:
+    print('未通过:')
+    for n in bad:
+        print(' - ' + n)
+sys.exit(1 if bad else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v20] 升级保护与重启 =====
+# -*- coding: utf-8 -*-
+"""第 23 轮专项验证：装新版本时保住老数据、关掉旧版本、打开新版本。
+
+覆盖：
+  ① appdata：升级前备份 / 缺失恢复 / 旧路径迁移 / 实例登记
+  ② 进程识别：只认日历本体，绝不误伤 dpkg 与终端里敲命令的 shell
+  ③ 脚本契约：preinst 备份、postinst 关旧+恢复+开新、prerm 停、postrm 留数据
+  ④ 端到端：旧实例在跑 -> 数据被清空 -> 装完自动关旧、恢复、开新
+"""
+import glob
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import brltest_env as _ENV
+_ENV.isolate('v20')
+
+ok, bad = [], []
+
+
+def ck(name, cond, extra=''):
+    (ok if cond else bad).append(name)
+    print(('PASS ' if cond else 'FAIL ') + name + ('  ' + str(extra) if extra else ''))
+
+
+# ---------------------------------------------------------------- ① appdata
+TD = tempfile.mkdtemp(prefix='v20-')
+XD = os.path.join(TD, 'xdg')
+XC = os.path.join(TD, 'cfg')
+BKR = os.path.join(TD, 'bk')
+for _d in (XD, XC):
+    os.makedirs(os.path.join(_d, 'desktop-calendar'))
+os.environ['XDG_DATA_HOME'] = XD
+os.environ['XDG_CONFIG_HOME'] = XC
+# HOME 也要隔离：迁移逻辑会把 HOME 下的老位置当成数据源，
+# 不挪走的话 root 家目录里的历史残留会串进测试。
+os.environ['HOME'] = os.path.join(TD, 'home')
+os.makedirs(os.environ['HOME'])
+os.environ['DC_BACKUP_ROOT'] = BKR
+
+import brl.appdata as AD
+from brl import store as S
+
+INI = os.path.join(XC, 'desktop-calendar', 'calendar.ini')
+DB = os.path.join(XD, 'desktop-calendar', 'calendar.db')
+PID = os.path.join(XD, 'desktop-calendar', 'app.pid')
+
+
+def seed(path_ini, path_db, n, theme):
+    # 注意 ini 节名要与 QSettings 的读写一致：ui/theme 对应 [ui] 节
+    with open(path_ini, 'w') as f:
+        f.write('[ui]\ntheme=%d\npos=11,22\n' % theme)
+    cn = sqlite3.connect(path_db)
+    cn.executescript(S.SCHEMA)
+    for i in range(n):
+        cn.execute('INSERT INTO todo(content,category,date,created) VALUES(?,?,?,?)',
+                   (u'升级前待办%d' % (i + 1), u'生活', '2026-10-22', 'x'))
+    cn.commit()
+    cn.close()
+
+
+def todos(path_db):
+    cn = sqlite3.connect(path_db)
+    n = cn.execute('SELECT COUNT(*) FROM todo').fetchone()[0]
+    cn.close()
+    return n
+
+
+seed(INI, DB, 3, 2)
+d, kinds = AD.make_backup()
+ck('①1 升级前备份生成', bool(d) and kinds == ['db', 'ini'], d)
+ck('①2 备份落在数据目录之外', bool(d) and not d.startswith(XD), d)
+os.remove(DB)
+os.remove(INI)
+got = AD.ensure_data()
+ck('①3 缺失时自动恢复', sorted(got) == ['db', 'ini'], got)
+ck('①4 待办保留', todos(DB) == 3, todos(DB))
+ck('①5 设置保留', 'theme=2' in open(INI).read())
+with open(INI, 'w') as f:
+    f.write('KEEPME')
+ck('①6 已有内容不被备份覆盖', 'ini' not in AD.ensure_data()
+   and open(INI).read() == 'KEEPME')
+
+# 旧兜底路径（~/.desktop-calendar）迁移
+H5 = os.path.join(TD, 'home5')
+os.makedirs(os.path.join(H5, '.desktop-calendar'))
+os.remove(DB)
+bkd = sorted(os.listdir(BKR))[-1]
+shutil.copy(os.path.join(BKR, bkd, 'calendar.db'),
+            os.path.join(H5, '.desktop-calendar', 'calendar.db'))
+_old_home = os.environ.get('HOME')
+os.environ['HOME'] = H5
+got2 = AD.migrate_legacy()
+os.environ['HOME'] = _old_home
+ck('①7 旧兜底路径搬回来', 'db' in got2, got2)
+ck('①8 搬回的待办完好', todos(DB) == 3)
+
+ck('①9 实例登记可写可读', AD.write_pid('1.4.1.0')
+   and AD.read_pid()[0] == os.getpid())
+ck('①10 登记可清理', AD.clear_pid() and AD.read_pid() is None)
+
+# ---------------------------------------------------------------- ② 进程识别
+noise = subprocess.Popen(['bash', '-c', 'M=desktop-calendar_1.4.1.0_arm64.deb; sleep 40'],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+time.sleep(0.6)
+ck('②1 终端里含包名的 shell 不算日历', not AD._is_ours(noise.pid))
+ck('②2 pid 1 永不识别', not AD._is_ours(1))
+ck('②3 空跑请求退出不误伤', AD.request_quit(timeout=0.5) == ([], []))
+noise.kill()
+noise.wait()
+
+# ---------------------------------------------------------------- ③ 脚本契约
+import makedeb as MD
+MD_SRC = open(os.path.join(HERE, 'makedeb.py'), encoding='utf-8').read()
+ck('③1 preinst 升级前备份', 'prepare' in MD.PREINST)
+ck('③2 postinst 只在升级时收尾', 'if [ -n "$2" ]' in MD.POSTINST)
+ck('③3 postinst 收尾动作', 'finish "$U"' in MD.POSTINST)
+ck('③4 prerm 卸载才停实例', 'stop' in MD.PRERM and '!= "upgrade"' in MD.PRERM)
+ck('③5 postrm 不删用户数据', 'purge' in MD.POSTRM
+   and '/home' not in MD.POSTRM and 'HOME' not in MD.POSTRM)
+ck('③6 收尾脚本按进程名识别', 'comm' in MD.UPGRADER)
+_fi = MD.UPGRADER[MD.UPGRADER.index('do_finish() {'):]
+_k = _fi.index('kill -TERM')
+ck('③7 先关旧的再补数据', _fi.find('do_restore', _k) > _k)
+ck('③8 打包写入维护脚本', "'preinst', PREINST" in MD_SRC
+   and "'postrm', POSTRM" in MD_SRC)
+_debs = sorted(glob.glob(os.path.join(HERE, 'dist', '*.deb')))
+if _debs:
+    _ctl = os.path.join(TD, 'ctl')
+    os.makedirs(_ctl)
+    subprocess.run(['dpkg-deb', '-e', _debs[-1], _ctl], capture_output=True)
+    _miss = [n for n in ('preinst', 'postinst', 'prerm', 'postrm')
+             if not os.path.isfile(os.path.join(_ctl, n))]
+    ck('③9 deb 内含四个维护脚本', not _miss, _miss)
+else:
+    ck('③9 deb 内含四个维护脚本（暂无 deb，跳过）', True)
+
+# ---------------------------------------------------------------- ④ 端到端
+UP_SH = os.path.join(TD, 'dc-upgrade')
+with open(UP_SH, 'w') as f:
+    f.write(MD.UPGRADER)
+os.chmod(UP_SH, 0o755)
+LOG = os.path.join(TD, 'log')
+
+H6 = os.path.join(TD, 'home6')
+XD6 = os.path.join(H6, '.local/share')
+XC6 = os.path.join(H6, '.config')
+for _d in (os.path.join(XD6, 'desktop-calendar'),
+           os.path.join(XC6, 'desktop-calendar')):
+    os.makedirs(_d)
+INI6 = os.path.join(XC6, 'desktop-calendar', 'calendar.ini')
+DB6 = os.path.join(XD6, 'desktop-calendar', 'calendar.db')
+PID6 = os.path.join(XD6, 'desktop-calendar', 'app.pid')
+seed(INI6, DB6, 4, 5)
+
+LAUNCHED = os.path.join(TD, 'launched')
+LAUNCH = os.path.join(TD, 'fake-launch')
+with open(LAUNCH, 'w') as f:
+    f.write('#!/bin/sh\necho "HOME=$HOME DISPLAY=$DISPLAY" >> %s\n' % LAUNCHED)
+os.chmod(LAUNCH, 0o755)
+
+env6 = dict(os.environ)
+env6.update({'HOME': H6, 'XDG_DATA_HOME': XD6, 'XDG_CONFIG_HOME': XC6,
+             'QT_QPA_PLATFORM': 'offscreen', 'PYTHONPATH': HERE})
+_env_root = os.environ.get('DC_BACKUP_ROOT')
+os.environ['DC_BACKUP_ROOT'] = os.path.join(H6, 'bk')
+
+r = subprocess.run(['sh', UP_SH, 'prepare', 'u20', H6, ':0', LOG],
+                   env=env6, capture_output=True, text=True)
+ck('④1 脚本完成升级前备份',
+   os.path.isdir(os.path.join(H6, '.desktop-calendar-backup'))
+   and len(os.listdir(os.path.join(H6, '.desktop-calendar-backup'))) > 0)
+
+old = subprocess.Popen([sys.executable, '-m', 'brl'], env=env6,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       start_new_session=True)
+_t0 = time.time()
+while time.time() - _t0 < 25 and not os.path.isfile(PID6):
+    time.sleep(0.2)
+ck('④2 旧实例已登记自己', os.path.isfile(PID6), old.poll())
+
+os.remove(DB6)
+os.remove(INI6)
+env7 = dict(env6)
+env7['DC_LAUNCHER'] = LAUNCH
+r = subprocess.run(['sh', UP_SH, 'finish', 'u20', H6, ':0', LOG],
+                   env=env7, capture_output=True, text=True, timeout=60)
+_gone = old.poll() is not None
+if not _gone:
+    time.sleep(2)
+    _gone = old.poll() is not None
+ck('④3 旧实例已关闭', _gone, old.poll())
+ck('④4 旧实例自己清理了登记', not os.path.isfile(PID6))
+ck('④5 待办被恢复', todos(DB6) == 4, todos(DB6))
+# QSettings 写 ini 时键里的 / 会变成 \（ui\theme=5），所以只看值
+ck('④6 设置被恢复', 'theme=5' in open(INI6).read(),
+   open(INI6).read()[:120])
+ck('④7 新版本被拉起',
+   os.path.isfile(LAUNCHED) and 'DISPLAY=:0' in open(LAUNCHED).read(),
+   open(LAUNCHED).read() if os.path.isfile(LAUNCHED) else '')
+os.environ['DC_BACKUP_ROOT'] = _env_root
+AD.clear_pid(only_self=False)
 
 print()
 print('结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))

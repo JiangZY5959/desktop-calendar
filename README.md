@@ -5,7 +5,7 @@
 - 语言：Python 3 + PyQt5
 - 架构：aarch64（LoongArch / x86 只需重新打包，代码无架构相关分支）
 - 许可：MIT
-- 当前版本：**1.4.0.2**
+- 当前版本：**1.4.1.0**
 
 ![主界面](screenshots/main.png)
 
@@ -13,7 +13,7 @@
 
 | 版本 | 安装包 | 平台 |
 |---|---|---|
-| v1.4.0.2 | [desktop-calendar_1.4.0.2_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/52a8f8ab4497f90cc798695c01f7ad92bfb3c96a/releases/desktop-calendar_1.4.0.2_arm64.deb) | UOS / 飞腾 aarch64 |
+| v1.4.1.0 | [desktop-calendar_1.4.1.0_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/c247f04c4a5845b50d2cf21e0eef8552f95858b1/releases/desktop-calendar_1.4.1.0_arm64.deb) | UOS / 飞腾 aarch64 |
 
 安装包也放在仓库的 [`releases/`](releases/) 目录中，可在网页端点开目录后右上角直接下载。已安装旧版的用户不必手动下载：**软件会自己检查更新并安装**（见下文）。
 
@@ -21,7 +21,7 @@
 
 ```bash
 wget -O desktop-calendar.deb \
-  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/52a8f8ab4497f90cc798695c01f7ad92bfb3c96a/releases/desktop-calendar_1.4.0.2_arm64.deb
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/c247f04c4a5845b50d2cf21e0eef8552f95858b1/releases/desktop-calendar_1.4.1.0_arm64.deb
 sudo dpkg -i desktop-calendar.deb
 ```
 
@@ -70,6 +70,13 @@ sudo dpkg -i desktop-calendar.deb
 - 安装后自动在用户桌面创建快捷方式
 - `deb` 遵循 UOS 应用规范，安装到 `/opt/apps/com.desktop.calendar/`
 
+### 升级与数据安全
+- **升级时保留待办与设置**：升级前自动备份待办库与设置（root 安装放 `/var/backups/desktop-calendar`，否则在家目录 `~/.desktop-calendar-backup`，保留最近 5 份）；装完发现文件缺失或为空会自动补回来
+- **卸载、甚至彻底清除（purge）都不动用户数据**——重装或升级回来，待办和设置原样还在
+- **装完自动"关旧开新"**：升级脚本先请正在运行的旧版本**保存退出**（窗口位置、设置先落盘），等它真正退出后再把新版本拉起来；绝不会新旧两个进程同时读写同一份数据
+- **单实例接管**：手动再开一个日历时，也会先请旧实例退出，始终只有一个在跑
+- 进程识别按"进程名 + 启动参数"精确匹配，正在装包的 dpkg、终端里的 shell 不会被误伤
+
 ### 检查更新
 - 数据源是 GitCode 公开仓库里的版本清单，**只读公开数据，不需要账号或令牌**
 - 频率**默认每天检查一次**，设置里可改为每周 / 每月 / 仅手动；选「仅手动」后平时零联网
@@ -77,7 +84,8 @@ sudo dpkg -i desktop-calendar.deb
 - 发现新版本时弹出提示，附更新说明，可选 **立即更新 / 稍后再说 / 跳过此版本**（跳过只针对这一个版本，下个版本照常提示）
 - 后台静默检查不打扰：没新版本、查不到（断网等）都只是安静记一条日志
 - 点「立即更新」后**自动下载安装包**：自绘进度条、可取消，下载完校验体积、deb 包头与 sha256
-- 校验通过后调用系统安装器安装：优先 UOS 自带的 `deepin-deb-installer`，其次 `pkexec apt-get` / `dpkg`；装好可一键重启日历
+- 校验通过后调用系统安装器安装：优先 UOS 自带的 `deepin-deb-installer`，其次 `pkexec apt-get` / `dpkg`
+- **装好后日历自动换成新版本**：先关旧进程再打开新版，不需要手动重启
 - 命令行也能自检：`desktop-calendar --check-update`
 
 ---
@@ -87,8 +95,9 @@ sudo dpkg -i desktop-calendar.deb
 ```
 .
 ├── brl/                    主程序包
-│   ├── __main__.py         入口（含 --set-autostart / --make-desktop-icon / --check-update）
-│   ├── appctx.py           应用上下文、托盘、自启动、桌面图标
+│   ├── __main__.py         入口（含 --quit / --backup / --ensure 等维护参数）
+│   ├── appctx.py           应用上下文、托盘、自启动、桌面图标、信号优雅退出
+│   ├── appdata.py          升级数据保护：实例登记、备份恢复、旧路径迁移
 │   ├── mainwin.py          主窗口：布局、主题应用、提醒检查、锁定
 │   ├── caltable.py         日历表格绘制（格子、待办、节日）
 │   ├── settings.py         选项设置对话框（基础 / 背景 / 检查更新）
@@ -102,7 +111,7 @@ sudo dpkg -i desktop-calendar.deb
 │   ├── holidays.py         法定节假日与调休数据（依据国务院办公厅年度安排整理）
 │   ├── data.py  store.py  defaults.py  x11fix.py
 │   └── resources/icons/    自制扁平图标（17 个）
-├── makedeb.py              打包脚本：生成 aarch64 deb
+├── makedeb.py              打包脚本：生成 aarch64 deb（含升级收尾脚本 desktop-calendar-upgrade）
 ├── make_manifest.py        生成 releases/latest.json 版本清单（含 sha256 与 blob 直链）
 ├── verify.py               全量回归验证（按功能分节的单文件套件）
 ├── brltest_env.py          测试用 XDG 隔离（防止测试污染真实配置）
@@ -140,10 +149,10 @@ python3 make_manifest.py      # 生成 releases/latest.json（版本清单）
 ## 安装
 
 ```bash
-sudo dpkg -i desktop-calendar_1.4.0.2_arm64.deb
+sudo dpkg -i desktop-calendar_1.4.1.0_arm64.deb
 ```
 
-安装过程中会弹出两次询问（是否开机自启、是否立即运行），可用图形界面点选，也可直接关闭跳过。
+首次安装会弹出**一个**询问窗口（是否开机自启、是否立即运行）；**升级覆盖安装不询问**，并自动完成：备份用户数据 → 请旧版本保存退出 → 补齐缺失的数据 → 打开新版本。
 
 卸载：
 
@@ -151,7 +160,7 @@ sudo dpkg -i desktop-calendar_1.4.0.2_arm64.deb
 sudo dpkg -r desktop-calendar
 ```
 
-手动创建的桌面快捷方式需自行删除（卸载脚本不会动用户桌面）。
+卸载不影响待办与设置；彻底清除（`purge`）也只清掉系统级的升级备份，用户数据仍保留。
 
 ---
 
@@ -161,6 +170,7 @@ sudo dpkg -r desktop-calendar
 |---|---|
 | 配置 | `~/.config/desktop-calendar/calendar.ini` |
 | 待办数据 / 日志 | `~/.local/share/desktop-calendar/` |
+| 升级备份 | `/var/backups/desktop-calendar/`（无权限时在 `~/.desktop-calendar-backup/`） |
 | 更新缓存（下载的安装包） | `~/.local/share/desktop-calendar/updates/` |
 | 开机自启 | `~/.config/autostart/com.desktop.calendar.desktop` |
 | 安装位置 | `/opt/apps/com.desktop.calendar/` |
@@ -196,6 +206,7 @@ python3 verify.py --list       # 列出分节
 | v17 | 安装流程、改名、桌面图标、版本一致性 |
 | v18 | 取色盘、锁定贴底、任务栏隐藏、托盘行为（需真桌面 X11） |
 | v19 | 检查更新：版本比较、频率、清单解析、下载校验、安装调用、设置页签 |
+| v20 | 升级保护：备份恢复、旧路径迁移、进程识别、关旧开新端到端 |
 | data | 农历/节假日/主题/存储等数据层自检 |
 | e2e | 开机自启端到端 |
 | lint | 别名/命名一致性 |

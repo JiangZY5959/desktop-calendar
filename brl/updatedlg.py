@@ -34,28 +34,21 @@ class _Panel(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setFixedSize(w, h)
         self._theme = dict(theme or {})
-        txt = T.qcolor(self._theme.get('txtclr', '#FFFFFF'))
-        self._light = (0.299 * txt.red() + 0.587 * txt.green()
-                       + 0.114 * txt.blue()) > 140
-        self._txt = txt.name()
-        dim = QColor(txt)
-        dim.setAlpha(175)
-        self._dim = dim.name()
-        line = QColor(txt)
-        line.setAlpha(75)
-        self._line = line.name()
-        self._hover = 'rgba(255,255,255,45)' if self._light else 'rgba(0,0,0,35)'
+        # 与「选项设置」同一套浅色卡片：这里刻意不跟随日历主题的深浅。
+        # 之前为了在深色主题上也看得清，主体用的是深色底，结果在白色系
+        # 桌面上显得又黑又突兀——三个窗口统一成浅底深字才是一个软件。
+        self._light = False
+        self._txt = '#202020'
+        self._dim = '#5A6069'
+        self._line = '#DCE0E6'
+        self._hover = '#F5F8FF'
 
     def paintEvent(self, ev):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        base = '#1E222A' if self._light else '#FFFFFF'
-        bg = T.qcolor(self._theme.get('mainbgndclr', '#B4101216'))
-        bg.setAlpha(min(bg.alpha(), 112))
-        T.paint_round(p, r, 10, base)
-        T.paint_round(p, r, 10, bg)
-        p.setPen(QPen(T.qcolor(self._theme.get('borderoutclr', '#3CFFFFFF'))))
+        T.paint_round(p, r, 10, '#F2F6FC')
+        p.setPen(QPen(QColor('#DCE0E6')))
         p.setBrush(Qt.NoBrush)
         p.drawRoundedRect(r, 10, 10)
         p.end()
@@ -66,7 +59,7 @@ class _Panel(QDialog):
         b.setFlat(True)
         b.setFocusPolicy(Qt.NoFocus)
         b.setCursor(Qt.PointingHandCursor)
-        b.setIcon(QIcon(T.tint(T.pix(D.res('icons', 'tool_close.png')), self._txt)))
+        b.setIcon(QIcon(T.tint(T.pix(D.res('icons', 'tool_close.png')), self._dim)))
         b.setStyleSheet('QPushButton{background:transparent;border:none;}'
                         'QPushButton:hover{background:%s;border-radius:4px;}'
                         % self._hover)
@@ -84,10 +77,11 @@ class _Panel(QDialog):
                 'border-radius:5px;font-size:13px;}'
                 'QPushButton:hover{background:#4A8CFF;}')
         else:
+            # 与设置页里那排按钮一个模子：白底、细边框、悬停淡蓝
             b.setStyleSheet(
-                'QPushButton{background:transparent;color:%s;font-size:13px;'
+                'QPushButton{background:#FFFFFF;color:%s;font-size:13px;'
                 'border:1px solid %s;border-radius:5px;}'
-                'QPushButton:hover{background:%s;}'
+                'QPushButton:hover{background:%s;border-color:#A9CDF7;}'
                 % (self._txt, self._line, self._hover))
         return b
 
@@ -183,13 +177,13 @@ class PromptDialog(_Panel):
         self._notes.setFrameShape(QTextBrowser.NoFrame)
         self._notes.setOpenExternalLinks(True)
         self._notes.setStyleSheet(
-            'QTextBrowser{background:transparent;border:1px solid %s;'
+            'QTextBrowser{background:#FFFFFF;border:1px solid %s;'
             'border-radius:6px;color:%s;font-size:13px;padding:6px;}'
             'QScrollBar:vertical{background:transparent;width:8px;margin:0;}'
-            'QScrollBar::handle:vertical{background:%s;border-radius:4px;'
+            'QScrollBar::handle:vertical{background:#C8D0DA;border-radius:4px;'
             'min-height:20px;}'
             'QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}'
-            % (self._line, self._txt, self._line))
+            % (self._line, self._txt))
         body = manifest.get('notes') or u'（该版本没有附带更新说明）'
         self._notes.setPlainText(body)
         lay.addWidget(self._notes, 1)
@@ -507,7 +501,20 @@ class UpdateFlow(QObject):
         self._install(path)
 
     # ---------------- 安装
+    def _backup(self):
+        """动安装器之前，先把待办与设置另存一份兜底。"""
+        try:
+            from . import appdata as AD
+            d, kinds = AD.make_backup()
+            if d:
+                self._log(u'升级前备份：%s（%s）' % (d, ','.join(kinds)))
+            else:
+                self._log(u'升级前备份：无数据文件，跳过')
+        except Exception as e:
+            self._log(u'升级前备份失败：%s' % e)
+
     def _install(self, path):
+        self._backup()
         plan = U.installer_plan(path)
         if not plan:
             QMessageBox.information(
@@ -533,7 +540,7 @@ class UpdateFlow(QObject):
             self._log(u'已交给 %s 安装' % label)
             QMessageBox.information(
                 self._parent, APP_NAME,
-                u'已启动%s。\n请在打开的窗口里确认安装，装好后重新打开日历即可。'
+                u'已启动%s。\n请在打开的窗口里确认安装，装好后日历会自动换成新版本。'
                 % label)
             return
         busy = BusyDialog(self._theme(), self._parent,
@@ -550,7 +557,7 @@ class UpdateFlow(QObject):
                 pass
             if ok:
                 self._log(u'%s 安装成功' % label)
-                self._ask_restart(path)
+                self._finish(path)
             else:
                 self._log(u'%s 安装失败：%s' % (label, msg))
                 self._try_install(path, plan, idx + 1)
@@ -563,15 +570,51 @@ class UpdateFlow(QObject):
     def _on_inst_thread_done(self):
         self._inst_th = None
 
-    def _ask_restart(self, path):
+    # ---------------- 收尾：关掉旧版本，打开新版本
+    def _flush(self):
+        """把还在内存里的设置落盘，别等被信号打断时才想起没存。"""
+        try:
+            self._st().sync()
+        except Exception:
+            pass
+
+    def _finish(self, path):
+        """安装完成。
+
+        正常情况下安装脚本（postinst）会负责"关旧的、开新的"，这里只管
+        保存好数据然后等着被请出去；万一装的是那种不跑我们脚本的安装器，
+        2.5 秒后自己把新版本拉起来再退，绝不让新旧两个版本同时写数据。
+        """
         U._safe_remove(path)
-        r = QMessageBox.question(
-            self._parent, APP_NAME,
-            u'更新完成，是否立即重新打开日历？',
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-        if r == QMessageBox.Yes:
+        self._flush()
+        try:
+            from . import appdata as AD
+            got = AD.ensure_data()
+            if got:
+                self._log(u'已从备份恢复：%s' % ','.join(got))
+        except Exception:
+            pass
+        self._log(u'安装完成，等待新版本启动')
+        QTimer.singleShot(2500, self._relaunch_if_needed)
+
+    def _relaunch_if_needed(self):
+        ok, info = U.relaunch(delay=1.0)
+        if not ok:
+            self._log(u'重启失败：%s' % info)
+            return
+        self._log(u'自行拉起新版本：%s' % info)
+        QTimer.singleShot(250, self._quit_self)
+
+    def _quit_self(self):
+        # 走 Context.quit() 才会保存窗口位置与设置，直接 app.quit() 会丢东西
+        ctx = getattr(self._host, '_ctx', None)
+        if ctx is not None and hasattr(ctx, 'quit'):
             try:
-                subprocess.Popen(U.restart_command(), env=U.install_env())
-            except Exception as e:
-                self._log(u'重启失败：%s' % e)
-            QTimer.singleShot(200, QApplication.instance().quit)
+                ctx.quit()
+                return
+            except Exception:
+                pass
+        try:
+            QApplication.instance().quit()
+        except Exception:
+            pass

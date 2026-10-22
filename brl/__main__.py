@@ -2,10 +2,22 @@
 """程序入口。
 
 支持少量安装器/维护用的命令行参数（见 _dispatch），其余情况正常启动界面。
+
+维护参数按「需不需要 Qt」分成两拨：升级保护那几个（--quit/--backup/--ensure
+…）刻意不碰 Qt，安装脚本在没有图形环境时也能安全调用；其余的用到设置读写
+/弹窗的，用到时才 import，避免在装了新包的机器上因为环境不全而整条脚本挂掉。
 """
 import sys
 
-from . import appctx
+
+# 不需要 Qt 的维护动作：由 appdata 处理
+_QTLESS = {
+    '--quit': 'quit',
+    '--instances': 'instances',
+    '--backup': 'backup',
+    '--ensure': 'ensure',
+    '--pid': 'pid',
+}
 
 
 def _dispatch(argv):
@@ -13,41 +25,49 @@ def _dispatch(argv):
     if not argv:
         return False, 0
 
-    if argv[0] == '--set-autostart':
+    cmd = argv[0]
+    if cmd in _QTLESS:
+        from . import appdata as AD
+        msg, code = AD.cli(_QTLESS[cmd])
+        sys.stdout.write(u'%s\n' % msg)
+        return True, code
+
+    if cmd == '--set-autostart':
         # 用法: desktop-calendar --set-autostart on|off
         # 由安装器（postinst）调用：同步写配置项与自启动文件，
         # 保证两者一致，避免界面启动时又把文件删掉。
         val = argv[1].lower() if len(argv) > 1 else 'on'
         want = val in ('on', '1', 'true', 'yes', u'是')
+        from . import appctx as A
         from . import store as S
         st = S.Store()
         st.settings().setValue('general/autostart', '1' if want else '0')
         st.settings().sync()
-        state = appctx.apply_autostart(st)
+        state = A.apply_autostart(st)
         sys.stdout.write('autostart: %s\n' % ('on' if state else 'off'))
         return True, 0
 
-    if argv[0] == '--ask-install':
+    if cmd == '--ask-install':
         # 用法: desktop-calendar --ask-install
         # 由安装后脚本以"目标用户"身份调用：弹一个窗口问「开机自启」与
         # 「立即运行」，结果打印成 autostart=0/1、run=0/1 两行。
         from . import askinstall as AI
         return True, AI.main(ask_run=True, argv=sys.argv[:1])
 
-    if argv[0] == '--ask-autostart':
+    if cmd == '--ask-autostart':
         # 用法: desktop-calendar --ask-autostart
         # 只问「开机自启」这一个问题，用于装时没问成时的首次启动补问。
         from . import askinstall as AI
         return True, AI.main(ask_run=False, argv=sys.argv[:1])
 
-    if argv[0] == '--mark-asked':
+    if cmd == '--mark-asked':
         # 用法: desktop-calendar --mark-asked
         # 标记"开机自启已经问过"，后面不再打扰。
         from . import askinstall as AI
         AI.mark_asked()
         return True, 0
 
-    if argv[0] == '--make-desktop-icon':
+    if cmd == '--make-desktop-icon':
         # 用法: desktop-calendar --make-desktop-icon
         # 在用户桌面创建快捷方式（XDG_DESKTOP_DIR / ~/桌面 / ~/Desktop）
         from . import appctx as A
@@ -55,7 +75,7 @@ def _dispatch(argv):
         sys.stdout.write('desktop icon: %s\n' % ('ok' if made else 'fail'))
         return True, 0
 
-    if argv[0] == '--check-update':
+    if cmd == '--check-update':
         # 用法: desktop-calendar --check-update
         # 命令行查一次版本（不下载、不弹窗），便于排查网络问题
         from . import update as U
@@ -78,5 +98,6 @@ if __name__ == '__main__':
     handled, code = _dispatch(sys.argv[1:])
     if handled:
         sys.exit(code)
+    from . import appctx
     code, _ctx = appctx.main()
     sys.exit(code)
