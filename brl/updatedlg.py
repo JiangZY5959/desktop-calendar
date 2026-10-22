@@ -176,6 +176,8 @@ class PromptDialog(_Panel):
         self._notes = QTextBrowser()
         self._notes.setFrameShape(QTextBrowser.NoFrame)
         self._notes.setOpenExternalLinks(True)
+        # 文字仍然可以选中复制，但不再弹右键菜单
+        self._notes.setContextMenuPolicy(Qt.NoContextMenu)
         self._notes.setStyleSheet(
             'QTextBrowser{background:#FFFFFF;border:1px solid %s;'
             'border-radius:6px;color:%s;font-size:13px;padding:6px;}'

@@ -64,6 +64,40 @@ def sha256(path):
     return h.hexdigest()
 
 
+# 更新弹窗是给用户看的：只留"加了什么 / 删了什么 / 修了什么"，
+# 内部实现、构建脚本、验证这些词直接跳过。
+_INTERNAL_WORDS = (
+    '验证', '分节', '断言', 'makedeb', '打包脚本', 'make_manifest',
+    '清单', 'blob', 'sha256', 'postinst', 'preinst', 'postrm', 'prerm',
+    'zenity', '脚本', 'brl/', 'lint', '重构', '端到端', '参数', 'json',
+    '守护', '构建', 'latest.json', '直链', '函数', '变量', '常量',
+    '版本号', 'api', 'url', 'logger', '单元',
+)
+
+_MAX_ENTRIES = 6
+_MAX_LEN = 46
+
+
+def _slim_entry(line):
+    """一条更新记录 -> 弹窗里的一句话（冒号前的标题，过长再截）。"""
+    line = re.sub(r'\*\*(.+?)\*\*', r'\1', line)
+    line = re.sub(r'`(.+?)`', r'\1', line)
+    for sep in (u'：', ':'):
+        if sep in line:
+            head = line.split(sep, 1)[0].strip()
+            # 标题太短说明这条本来就没多少内容，保留原文再截分号
+            if len(head) >= 6:
+                line = head
+            break
+    for sep in (u'；', ';'):
+        if sep in line:
+            line = line.split(sep, 1)[0].strip()
+    line = line.strip(' -·\t')
+    if len(line) > _MAX_LEN:
+        line = line[:_MAX_LEN - 1] + u'…'
+    return line
+
+
 def notes_from_changelog(ver):
     p = os.path.join(ROOT, 'CHANGELOG.md')
     if not os.path.exists(p):
@@ -73,12 +107,26 @@ def notes_from_changelog(ver):
                   txt, re.S | re.M)
     if not m:
         return ''
-    body = m.group(1).strip()
-    # 去掉 markdown 记号，弹窗里按纯文本显示
-    body = re.sub(r'\*\*(.+?)\*\*', r'\1', body)
-    body = re.sub(r'`(.+?)`', r'\1', body)
-    body = body.replace('- ', '· ')
-    return body.strip()
+    entries = []
+    for ln in m.group(1).splitlines():
+        ln = ln.strip()
+        if not ln.startswith('-'):
+            continue
+        text = _slim_entry(ln)
+        if not text:
+            continue
+        low = text.lower()
+        if any(w.lower() in low for w in _INTERNAL_WORDS):
+            continue
+        if text not in entries:
+            entries.append(text)
+    if not entries:
+        # 一条都没筛出来时退回原始正文，别让弹窗空着
+        body = re.sub(r'\*\*(.+?)\*\*', r'\1', m.group(1))
+        body = re.sub(r'`(.+?)`', r'\1', body)
+        entries = [l.strip(' -') for l in body.splitlines()
+                   if l.strip().startswith('-')][: _MAX_ENTRIES]
+    return u'\n'.join(u'· ' + e for e in entries[:_MAX_ENTRIES])
 
 
 def main(argv):
