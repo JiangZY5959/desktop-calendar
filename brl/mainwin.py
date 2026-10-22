@@ -652,6 +652,9 @@ class MainWindow(QWidget):
             if X11.set_below(self._win_id(), self._locked):
                 if self._locked:
                     self.lower()
+                self._reassert_wm_state(0)
+                self._reassert_wm_state(200)
+                self._reassert_wm_state(700)
                 return True
         # 非 X 环境（offscreen 测试等）回退到 Qt 原生方案（会有一次重建）
         pos = self.pos()
@@ -665,6 +668,28 @@ class MainWindow(QWidget):
             self.lower()
         self._apply_skip_taskbar(_force=True)
         return False
+
+    def _reassert_wm_state(self, delay=0):
+        """稍后再确认一次窗口状态。
+
+        窗口管理器在窗口映射之后会按自己的状态表回写 _NET_WM_STATE，
+        刚写进去的 BELOW 有概率被抹掉；这里延迟补一次，让它自愈。
+        """
+        def _do():
+            from PyQt5.QtGui import QGuiApplication
+            if QGuiApplication.platformName() != 'xcb':
+                return
+            wid = self._win_id()
+            if not wid:
+                return
+            want = ['SKIP_TASKBAR', 'SKIP_PAGER']
+            if self._locked:
+                want.append('BELOW')
+            X11.assert_state(wid, want)
+        if delay:
+            QTimer.singleShot(delay, _do)
+        else:
+            _do()
 
     def _win_id(self):
         try:

@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, 'brl')
 APPID = 'com.desktop.calendar'
 PKG = 'desktop-calendar'
-VER = '1.4.0.0'
+VER = '1.4.0.1'
 OUT = os.path.join(ROOT, 'dist')
 APP_NAME = u'桌面悬浮日历'
 

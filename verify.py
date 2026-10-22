@@ -785,6 +785,7 @@ def ck(name, ok, extra=''):
 S = store.Store()
 src = open(os.path.join(HERE, 'brl', 'todo.py')).read()
 tsrc = open(os.path.join(HERE, 'brl', 'timepick.py')).read()
+thsrc = open(os.path.join(HERE, 'brl', 'theme.py')).read()
 d0 = datetime.date.today()
 
 print('== ① 提醒可用 / 时间可选')
@@ -795,7 +796,8 @@ ck('滚轮全部自绘（不依赖系统风格）',
    'def paintEvent' in tsrc and 'QComboBox' not in tsrc)
 ck('不再使用只能键盘调的 QTimeEdit 控件', 'self.tm = QTimeEdit()' not in src)
 ck('提醒文案精简', u"REMINDS = [u'不提醒', u'前一天提醒', u'当天提醒']" in src)
-ck('下拉框自绘箭头', 'down-arrow{image:url(' in src)
+ck('下拉框自绘箭头（统一样式在 theme，todo 引用）',
+   'down-arrow{image:url(' in thsrc and 'T.combo_style()' in src)
 ck('箭头图标存在', os.path.exists(os.path.join(HERE, 'brl', 'resources', 'icons',
                                             'nav_down.png')))
 
@@ -2110,12 +2112,17 @@ import time as _time
 
 
 def _xhas(name, want=True, tries=20):
-    """X11 状态读回带短轮询：属性写入与窗口管理器回写之间有偶发竞态。"""
+    """X11 状态读回带短轮询：属性写入与窗口管理器回写之间有偶发竞态。
+
+    轮询期间要跑事件循环——主窗口有延迟自愈的定时器，真实运行时事件循环
+    一直在转，这里也要转，否则等于把自愈能力关掉了。
+    """
     for _i in range(tries):
         have = name in X11.state_names(wid)
         if have == want:
             return True
         _time.sleep(0.05)
+        app.processEvents()
     return False
 
 
@@ -2146,6 +2153,16 @@ ck('③.再切->恢复', _xhas('BELOW', want=False), X11.state_names(wid))
 X11.skip_taskbar(wid)
 ck('③.任务栏隐藏(SKIP_TASKBAR)',
    _xhas('SKIP_TASKBAR'), X11.state_names(wid))
+# 自愈：窗口管理器回写状态时把 BELOW 抹掉，延迟补一次要能修回来
+ck('③.有自愈函数 assert_state', callable(getattr(X11, 'assert_state', None)))
+ck('③.已满足时 assert_state 空转', X11.assert_state(wid, ['SKIP_TASKBAR']) is True)
+_X11_SRC = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             'brl', 'x11fix.py'), encoding='utf-8').read()
+ck('③.状态变更走 EWMH ClientMessage', 'XSendEvent' in _X11_SRC and
+   'send_state' in _X11_SRC)
+ck('③.锁定后会延迟补写状态', '_reassert_wm_state' in
+   open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     'brl', 'mainwin.py'), encoding='utf-8').read())
 
 print('== 自定义色板持久化 ==')
 from PyQt5.QtCore import QSettings

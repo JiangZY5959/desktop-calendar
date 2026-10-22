@@ -23,29 +23,6 @@ PALETTE = ['#FFFFFFFF', '#FFFF4D4D', '#FFFFA640', '#FFFFE14D', '#FF5CD65C',
            '#FF4DC4FF', '#FF7C8CFF', '#FFFF7CD6', '#FF9E9E9E', '#FF000000']
 
 
-def combo_style(compact=False):
-    """下拉框统一外观：细边框 + 自绘箭头，避免系统样式又粗又暗。"""
-    p = D.res('icons', 'nav_down.png')
-    pad = '6px 20px 6px 8px' if compact else '4px 26px 4px 9px'
-    return (
-        'QComboBox{background:#FFFFFF;border:1px solid #DEE3E8;border-radius:5px;'
-        'padding:%s;color:#202020;font-size:14px;min-height:20px;}' % pad +
-        'QComboBox:hover{border:1px solid #9FC5F5;}'
-        'QComboBox:focus{border:1px solid #2F7BFF;}'
-        'QComboBox:disabled{background:#F5F6F8;color:#A8AEB6;border-color:#E9ECEF;}'
-        'QComboBox::drop-down{subcontrol-origin:padding;subcontrol-position:top right;'
-        'width:24px;border-left:1px solid #F0F2F5;}'
-        'QComboBox::down-arrow{image:url(%s);width:12px;height:12px;}'
-        'QComboBox:disabled::down-arrow{opacity:0.4;}'
-        'QComboBox QAbstractItemView{background:#FFFFFF;border:1px solid #DEE3E8;'
-        'border-radius:6px;padding:4px 0;outline:0;}'
-        'QComboBox QAbstractItemView::item{min-height:28px;padding:4px 12px;'
-        'color:#202020;}'
-        'QComboBox QAbstractItemView::item:hover{background:#EDF4FE;}'
-        'QComboBox QAbstractItemView::item:selected{background:#DCEAFB;'
-        'color:#202020;}' % p)
-
-
 class ColorPicker(QPushButton):
     """文本颜色选择（还原 ClrButton）"""
     colorChanged = pyqtSignal(str)
@@ -116,7 +93,7 @@ class TodoEditDialog(QDialog):
         bl.addWidget(QLabel(u'待办分类:'), 1, 0)
         self.cb_type = QComboBox()
         self.cb_type.addItems(CATEGORIES)
-        self.cb_type.setStyleSheet(combo_style())
+        self.cb_type.setStyleSheet(T.combo_style())
         self.cb_type.setCursor(Qt.PointingHandCursor)
         bl.addWidget(self.cb_type, 1, 1)
 
@@ -137,14 +114,14 @@ class TodoEditDialog(QDialog):
         bl.addWidget(QLabel(u'待办重复:'), 3, 2)
         self.cb_repeat = QComboBox()
         self.cb_repeat.addItems(REPEATS)
-        self.cb_repeat.setStyleSheet(combo_style())
+        self.cb_repeat.setStyleSheet(T.combo_style())
         self.cb_repeat.setCursor(Qt.PointingHandCursor)
         bl.addWidget(self.cb_repeat, 3, 3)
 
         bl.addWidget(QLabel(u'待办提醒:'), 4, 0)
         self.cb_remind = QComboBox()
         self.cb_remind.addItems(REMINDS)
-        self.cb_remind.setStyleSheet(combo_style())
+        self.cb_remind.setStyleSheet(T.combo_style())
         self.cb_remind.setMinimumWidth(150)
         self.cb_remind.setCursor(Qt.PointingHandCursor)
         bl.addWidget(self.cb_remind, 4, 1)

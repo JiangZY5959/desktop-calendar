@@ -295,7 +295,6 @@ class SettingsDialog(QDialog):
             'QDialog{background:#F2F6FC;border-radius:10px;}'
             'QLabel{color:#202020;font-size:13px;}'
             'QCheckBox{color:#202020;font-size:14px;}'
-            'QComboBox{background:white;border:1px solid #E6E7E8;border-radius:4px;padding:3px;}'
             'QPushButton{font-size:13px;}')
         self._theme_idx = int(store.settings().value('ui/theme') or 0)
         lay = QVBoxLayout(self)
@@ -387,6 +386,7 @@ class SettingsDialog(QDialog):
         row = QHBoxLayout()
         row.addWidget(QLabel(u'设置第一周起点:'))
         cb = QComboBox()
+        cb.setStyleSheet(T.combo_style(min_width=80))
         cb.addItem(u'1月1日', 'jan1')
         cb.addItem(u'周一', 'mon')
         cur = str(st.value('cal/weekstart') or 'jan1')
@@ -394,17 +394,19 @@ class SettingsDialog(QDialog):
         cb.currentIndexChanged.connect(
             lambda i: self.on_value('cal/weekstart', cb.itemData(i)))
         row.addWidget(cb)
-        row.addSpacing(24)
+        row.addSpacing(8)
         row.addWidget(QLabel(u'日历字体大小:'))
         cb2 = QComboBox()
+        cb2.setStyleSheet(T.combo_style(compact=True))
         for i in (9, 10, 11, 12, 13, 14, 15, 16):
             cb2.addItem('%d' % i)
         cb2.setCurrentText(str(st.value('cal/scale') or 10))
         cb2.currentTextChanged.connect(lambda v: self.on_value('cal/scale', v))
         row.addWidget(cb2)
-        row.addSpacing(24)
+        row.addSpacing(8)
         row.addWidget(QLabel(u'清单字体大小:'))
         cb3 = QComboBox()
+        cb3.setStyleSheet(T.combo_style(compact=True))
         for i in (8, 9, 10, 11, 12, 13, 14):
             cb3.addItem('%d' % i)
         cb3.setCurrentText(str(st.value('cal/qscale') or 11))
@@ -571,6 +573,7 @@ class SettingsDialog(QDialog):
         row.setSpacing(10)
         row.addWidget(QLabel(u'检查频率:'))
         cbu = QComboBox()
+        cbu.setStyleSheet(T.combo_style(min_width=168))
         for key, name, _days in U.MODE_DAYS:
             cbu.addItem(name, key)
         cur = str(st.value('update/mode') or U.MODE_DEFAULT)
@@ -586,8 +589,9 @@ class SettingsDialog(QDialog):
         bupd.setFixedSize(96, 30)
         bupd.setCursor(Qt.PointingHandCursor)
         bupd.setStyleSheet('QPushButton{background:#FFFFFF;color:#202020;'
-                           'border:1px solid #D9DCE1;border-radius:4px;font-size:13px;}'
-                           'QPushButton:hover{background:#F5F8FF;border-color:#2F7BFF;}')
+                           'border:1px solid #DCE0E6;border-radius:5px;font-size:13px;}'
+                           'QPushButton:hover{background:#F5F8FF;'
+                           'border-color:#A9CDF7;color:#202020;}')
         bupd.clicked.connect(self.checkRequested.emit)
         self._upd_btn = bupd
         row.addWidget(bupd)

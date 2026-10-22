@@ -17,7 +17,12 @@ u"""X11 属性微调（ctypes 直连 libX11，无第三方依赖）。
 import ctypes
 
 _XA_ATOM = 4          # XA_ATOM
+_XA_WINDOW = 33       # XA_WINDOW
 _PROP_MODE_REPLACE = 0
+_CLIENT_MESSAGE = 33  # XClientMessageEvent 的事件类型号
+_SUBSTRUCT_REDIRECT = 0x00100000 | 0x00080000   # StructureNotify|SubstructureRedirect
+_NET_WM_STATE_ADD = 1
+_NET_WM_STATE_REMOVE = 0
 
 _STATE = '_NET_WM_STATE'
 _NAMES = {
@@ -26,6 +31,30 @@ _NAMES = {
     'SKIP_TASKBAR': '_NET_WM_STATE_SKIP_TASKBAR',
     'SKIP_PAGER': '_NET_WM_STATE_SKIP_PAGER',
 }
+
+
+class _ClientMsgData(ctypes.Union):
+    _fields_ = [('b', ctypes.c_char * 20),
+                ('s', ctypes.c_short * 10),
+                ('l', ctypes.c_long * 5)]
+
+
+class _ClientMsg(ctypes.Structure):
+    """XClientMessageEvent（64 位下 96 字节）。"""
+    _fields_ = [('type', ctypes.c_int),
+                ('serial', ctypes.c_ulong),
+                ('send_event', ctypes.c_int),
+                ('display', ctypes.c_void_p),
+                ('window', ctypes.c_ulong),
+                ('message_type', ctypes.c_ulong),
+                ('format', ctypes.c_int),
+                ('data', _ClientMsgData)]
+
+
+class _Event(ctypes.Union):
+    """XEvent：最大成员是 24 个 long，共 192 字节。"""
+    _fields_ = [('xclient', _ClientMsg),
+                ('pad', ctypes.c_long * 24)]
 
 
 def _load():
@@ -53,6 +82,11 @@ def _load():
         lib.XFree.argtypes = [ctypes.c_void_p]
         lib.XFlush.argtypes = [ctypes.c_void_p]
         lib.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        lib.XDefaultRootWindow.restype = ctypes.c_ulong
+        lib.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        lib.XSendEvent.restype = ctypes.c_int
+        lib.XSendEvent.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int,
+                                   ctypes.c_long, ctypes.c_void_p]
     except Exception:
         return None
     return lib
@@ -156,6 +190,90 @@ class _Dpy(object):
             pass
         return ret == 0, out
 
+    def get_window_prop(self, wid, name):
+        """读一个 32 位属性（返回第一个值，读不到返回 0）。"""
+        if not self.dpy or not wid:
+            return 0
+        actual_type = ctypes.c_ulong(0)
+        fmt = ctypes.c_int(0)
+        nitems = ctypes.c_ulong(0)
+        after = ctypes.c_ulong(0)
+        prop = ctypes.POINTER(ctypes.c_ubyte)()
+        try:
+            ret = self.lib.XGetWindowProperty(
+                self.dpy, ctypes.c_ulong(wid), self.atom(name),
+                0, 1, 0, 0,      # AnyPropertyType
+                ctypes.byref(actual_type), ctypes.byref(fmt),
+                ctypes.byref(nitems), ctypes.byref(after),
+                ctypes.byref(prop))
+        except Exception:
+            return 0
+        val = 0
+        try:
+            if ret == 0 and prop and nitems.value and fmt.value == 32:
+                val = int(ctypes.cast(prop, ctypes.POINTER(ctypes.c_ulong))[0])
+        except Exception:
+            val = 0
+        try:
+            if prop:
+                self.lib.XFree(prop)
+        except Exception:
+            pass
+        return val
+
+    def has_wm(self):
+        """根窗口上有没有 _NET_SUPPORTING_WM_CHECK（即有没有 EWMH 窗口管理器）。"""
+        try:
+            root = self.lib.XDefaultRootWindow(self.dpy)
+            return bool(self.get_window_prop(root, '_NET_SUPPORTING_WM_CHECK'))
+        except Exception:
+            return False
+
+    def send_state(self, wid, add=(), remove=()):
+        """按 EWMH 规范给根窗口发 _NET_WM_STATE ClientMessage。
+
+        为什么必须走这条路：直接 XChangeProperty 改 _NET_WM_STATE 时，窗口管理器
+        并不知道"是应用改的"，它在映射完成后会按自己的状态表把整个属性**回写**
+        一遍，直接写入的 BELOW 就被抹掉了（实测约 1/3 概率）。发 ClientMessage
+        等于请 WM 自己改，它的内部状态表会跟着更新，之后不会再被回写掉。
+        """
+        if not self.dpy:
+            return False
+        try:
+            root = self.lib.XDefaultRootWindow(self.dpy)
+        except Exception:
+            return False
+        mt = self.atom(_STATE)
+        ok = True
+        pairs = [(_NET_WM_STATE_ADD, n) for n in add] + \
+                [(_NET_WM_STATE_REMOVE, n) for n in remove]
+        # 一条消息最多带两个 atom，多的分批
+        for i in range(0, len(pairs), 2):
+            batch = pairs[i:i + 2]
+            ev = _Event()
+            ev.xclient.type = _CLIENT_MESSAGE
+            ev.xclient.serial = 0
+            ev.xclient.send_event = 1
+            ev.xclient.display = self.dpy
+            ev.xclient.window = wid
+            ev.xclient.message_type = mt
+            ev.xclient.format = 32
+            ev.xclient.data.l[0] = batch[0][0]
+            ev.xclient.data.l[1] = self.atom(_NAMES[batch[0][1]])
+            ev.xclient.data.l[2] = self.atom(_NAMES[batch[1][1]]) if len(batch) > 1 else 0
+            ev.xclient.data.l[3] = 1        # source indication: 普通应用
+            ev.xclient.data.l[4] = 0
+            try:
+                self.lib.XSendEvent(self.dpy, ctypes.c_ulong(root), 0,
+                                    _SUBSTRUCT_REDIRECT, ctypes.byref(ev))
+            except Exception:
+                ok = False
+        try:
+            self.lib.XFlush(self.dpy)
+        except Exception:
+            ok = False
+        return ok
+
     def set_atoms(self, wid, atoms):
         """整体替换 _NET_WM_STATE。"""
         if not self.dpy:
@@ -201,10 +319,41 @@ def set_state(wid, add=(), remove=()):
             ok, cur = d.get_state(wid)
             if not ok:
                 return False        # 窗口不存在 / 不在 X 显示上
+            # 有窗口管理器时先按规范请它改（否则它回写状态表会把 BELOW 抹掉），
+            # 同时自己写一次属性，保证没有 WM 或 WM 反应慢时也立刻生效。
+            if add or remove:
+                d.send_state(wid, add, remove)
             for name in remove:
                 cur.discard(d.atom(_NAMES[name]))
             for name in add:
                 cur.add(d.atom(_NAMES[name]))
+            return d.set_atoms(wid, sorted(cur))
+    except Exception:
+        return False
+
+
+def assert_state(wid, want=()):
+    """确保 want 里的状态都存在（只补不删）；已满足返回 True。
+
+    窗口管理器的状态回写、以及映射初期的时序问题，都可能让刚写进去的状态
+    丢掉；调用方可以在稍后用这个函数补一次，做成自愈。
+    """
+    if not _LIB or not wid:
+        return False
+    try:
+        with _Dpy() as d:
+            if not d:
+                return False
+            ok, cur = d.get_state(wid)
+            if not ok:
+                return False
+            lack = [n for n in want if d.atom(_NAMES[n]) not in cur]
+            if not lack:
+                return True
+            if d.has_wm():
+                d.send_state(wid, lack, ())
+            for n in lack:
+                cur.add(d.atom(_NAMES[n]))
             return d.set_atoms(wid, sorted(cur))
     except Exception:
         return False

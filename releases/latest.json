@@ -1,10 +1,10 @@
 {
-  "version": "1.4.0.0",
-  "tag": "v1.4.0.0",
-  "file": "desktop-calendar_1.4.0.0_arm64.deb",
-  "size": 71584,
-  "sha256": "2d08a0ef2163a28223c5f60721dc2aae3e394039fe5d7dd36988a1c395985421",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/a2145533aac2ab6ab5f4de01259a71aa50537217/releases/desktop-calendar_1.4.0.0_arm64.deb",
+  "version": "1.4.0.1",
+  "tag": "v1.4.0.1",
+  "file": "desktop-calendar_1.4.0.1_arm64.deb",
+  "size": 73296,
+  "sha256": "255108cdce475ffd2b7cbfb252395bc797aa6769e57ef58eb9ed81aa0e8f96bb",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/922bb71b5534a6deabfde7e23552cb73e1e2d71e/releases/desktop-calendar_1.4.0.1_arm64.deb",
   "released": "2026-10-22",
-  "notes": "· 新增「检查更新」：数据源为 GitCode 公开仓库（releases/latest.json 版本清单），默认每天自动检查一次，可选每周 / 每月 / 仅手动\n· 选项设置新增与「基础设置」「背景设置」同级的独立「检查更新」页签：检查频率、立即检查、上次检查状态、项目主页\n· 发现新版本时弹出提示（附更新说明），可选 立即更新 / 稍后再说 / 跳过此版本；静默检查不会打扰（失败只记日志）\n· 确认更新后自动下载安装包（自绘进度条、可取消），校验体积 / deb 包头 / sha256 后调用系统安装程序安装：优先 UOS 自带的 deepin-deb-installer，其次 pkexec apt-get / dpkg，装完可一键重启\n· 版本清单由 make_manifest.py 生成（含 deb 的 sha256 与仓库 blob 直链，blob sha 可本地预算）；客户端读取清单不需要任何令牌，只读公开数据\n· 新增 desktop-calendar --check-update 命令行自检参数\n· 检查更新完全可关：选「仅手动检查」后只在点「立即检查」时联网，平时零流量"
+  "notes": "· 下拉框重做统一样式：设置页（检查频率、第一周起点、字体大小）与待办编辑窗全部改用一套自制下拉外观——细边框、圆角、自制灰色箭头\n· 修复悬停看不见文字：展开列表的悬停 / 选中色显式写死为浅蓝底 + 深色字，不再跟随系统调色板（之前浅底叠浅字，鼠标一扫就\"隐形\"）\n· 「检查更新」页的下拉加宽到合适宽度；基础设置页三个下拉与标签的行距收紧，不再溢出右边缘\n· 下拉样式收拢到 brl/theme.py 的 combo_style()，待办与设置共用一处\n· 修复「锁定」偶尔失效：窗口管理器在窗口映射后会按自己的状态表回写 _NET_WM_STATE，把刚写入的 BELOW 抹掉（实测约三分之一概率）。现在改为按 EWMH 规范发 ClientMessage 请窗口管理器改，再补一次属性直写兜底，并在 0.2 / 0.7 秒后各做一次自愈确认"
 }

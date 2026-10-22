@@ -171,6 +171,39 @@ def zh_color_dialog(initial, parent=None, title=u'选择颜色'):
     return ColorDialog(initial, parent, title)
 
 
+def combo_style(compact=False, min_width=0):
+    """下拉框统一外观：细边框 + 自制箭头 + 写死的浅底深字。
+
+    UOS 风格引擎下展开列表会用系统调色板，一旦底色是浅的、文字色被主题带成
+    浅色，鼠标扫过去就等于"看不见字"；所以这里把每一态的前景色都显式写定：
+    白底深字，悬停 / 选中都是浅蓝底 + 深字。
+    """
+    arrow = D.res('icons', 'nav_down.png')
+    pad = '5px 26px 5px 10px' if compact else '6px 28px 6px 10px'
+    mw = 'min-width:%dpx;' % min_width if min_width else ''
+    return (
+        'QComboBox{background:#FFFFFF;border:1px solid #DCE0E6;border-radius:5px;'
+        'padding:%s;color:#202020;font-size:13px;%s}' % (pad, mw) +
+        'QComboBox:hover{border:1px solid #A9CDF7;}'
+        'QComboBox:focus{border:1px solid #2F7BFF;}'
+        'QComboBox:disabled{background:#F5F6F8;color:#A8AEB6;border-color:#E9ECEF;}'
+        'QComboBox::drop-down{subcontrol-origin:padding;'
+        'subcontrol-position:top right;width:24px;'
+        'border-left:1px solid #F0F2F5;}'
+        'QComboBox::down-arrow{image:url(%s);width:12px;height:12px;}'
+        'QComboBox:disabled::down-arrow{opacity:0.4;}' % arrow +
+        'QComboBox QAbstractItemView{background:#FFFFFF;border:1px solid #DCE0E6;'
+        'border-radius:6px;padding:4px;outline:0;}'
+        'QComboBox QAbstractItemView::item{min-height:30px;padding:6px 10px;'
+        'color:#202020;background:transparent;}'
+        'QComboBox QAbstractItemView::item:hover{background:#EDF4FE;color:#202020;}'
+        'QComboBox QAbstractItemView::item:selected{background:#DCEAFB;color:#202020;}'
+        'QScrollBar:vertical{background:transparent;width:8px;margin:0;}'
+        'QScrollBar::handle:vertical{background:#D8DEE6;border-radius:4px;'
+        'min-height:20px;}'
+        'QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}')
+
+
 def font(size, bold=False, italic=False):
     f = QFont()
     f.setPointSizeF(size)
