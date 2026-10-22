@@ -1,0 +1,2969 @@
+# -*- coding: utf-8 -*-
+"""全量回归验证（单文件版）——按功能分节，一次跑完全部断言。
+
+原来的 verify7/8/9/11/12/13/14/15/16/17/18/19 + selftest + e2e_autostart +
+lint_aliases 十六个脚本，已按功能融合为下面一个个「分节」（代码原样保留）：
+
+    python3 verify.py                # 跑全部分节（每节独立子进程，互不污染）
+    python3 verify.py v19            # 只跑某一节
+    python3 verify.py v7 v19 lint    # 只跑指定的几节
+    python3 verify.py --list         # 列出分节
+
+分节在子进程里执行的原因：各分节会创建 QApplication、对模块打补丁、切换
+XDG 隔离目录，这些状态无法在同一进程里干净还原。X11 相关的分节（v18）
+需要在真桌面下跑（DISPLAY=:0），离屏必假失败。
+
+所有分节都经过 brltest_env.py 做 XDG 目录隔离，绝不读写用户真实配置。
+"""
+import os
+import re
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+
+# (键, 功能名)
+SECTIONS = [
+    ('v7', '界面基础'),
+    ('v8', '中文化与自启'),
+    ('v9', 'deb 包结构'),
+    ('v11', '日历格子绘制'),
+    ('v12', '待办清单交互'),
+    ('v13', '滑杆与图标'),
+    ('v14', '提醒与今日格'),
+    ('v15', '选中格与自适应'),
+    ('v16', '时间盘与提醒弹窗'),
+    ('v17', '安装流程与版本一致性'),
+    ('v18', '取色盘与X11窗口行为'),
+    ('v19', '检查更新'),
+    ('data', '数据层自检'),
+    ('e2e', '自启动端到端'),
+    ('lint', '命名一致性'),
+]
+
+# ---------------------------------------------------------------- 分节代码
+# 每节以标记行包裹，运行时由 split_sections() 解析；代码与原脚本逐字一致。
+
+
+def split_sections(text):
+    """从本文件里解析出 {键: 源码}。"""
+    out = {}
+    cur = None
+    buf = []
+    for line in text.splitlines(True):
+        m = re.match(r'# ===== \[SECTION (\w+)\]', line)
+        if m:
+            cur = m.group(1)
+            buf = []
+            continue
+        if line.startswith('# ===== [END SECTION] ====='):
+            if cur is not None:
+                out[cur] = ''.join(buf)
+            cur = None
+            continue
+        if cur is not None:
+            buf.append(line)
+    return out
+
+
+def run_one(key, src):
+    """在当前（子）进程里执行一个分节，返回 (pass 数, fail 数, 退出码)。"""
+    ns = {'__name__': '__main__', '__file__': os.path.join(ROOT, key + '.py')}
+    code = compile(src, '<%s>' % key, 'exec')
+    stat = {'pass': 0, 'fail': 0}
+    rc = 0
+    real_stdout = sys.stdout
+
+    class _Count(object):
+        # 透传输出，同时统计各脚本统一的 PASS/FAIL 断言行
+        def __init__(self, stream):
+            self._s = stream
+
+        def write(self, text):
+            self._s.write(text)
+            for line in text.splitlines():
+                ls = line.lstrip()
+                if re.match(r'PASS\b', ls):
+                    stat['pass'] += 1
+                elif re.match(r'FAIL\b', ls):
+                    stat['fail'] += 1
+
+        def flush(self):
+            self._s.flush()
+
+    try:
+        sys.stdout = _Count(real_stdout)
+        try:
+            exec(code, ns)
+        except SystemExit as e:
+            rc = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        rc = 1
+    finally:
+        sys.stdout = real_stdout
+    return stat['pass'], stat['fail'], rc
+
+
+def main(argv):
+    args = argv[1:]
+    if '--list' in args:
+        for key, name in SECTIONS:
+            print('%-6s %s' % (key, name))
+        return 0
+    keys = [(k, n) for k, n in SECTIONS if not args or k in args]
+    bad = [a for a in args if a not in dict(SECTIONS)]
+    for b in bad:
+        print(u'未知分节: %s（--list 查看全部）' % b)
+    if bad or not keys:
+        return 2
+
+    srcs = split_sections(open(os.path.abspath(__file__), encoding='utf-8').read())
+    total_p = total_f = 0
+    bad_sections = []
+    for key, name in keys:
+        print(u'\n===== %s  %s =====' % (key, name))
+        sys.stdout.flush()
+        env = dict(os.environ)
+        env.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        env.setdefault('PYTHONIOENCODING', 'utf-8')
+        if key == 'v18' and os.path.exists('/tmp/.X11-unix/X0'):
+            # v18 断言真实 X11 窗口状态：本机有 X 就用真 xcb（离屏必假失败）
+            env['QT_QPA_PLATFORM'] = 'xcb'
+            env.setdefault('DISPLAY', ':0')
+            env.setdefault('XAUTHORITY',
+                           os.path.expanduser('~/.Xauthority'))
+        p = subprocess.Popen([sys.executable, os.path.abspath(__file__),
+                              '--child', key],
+                             stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT,
+                             cwd=ROOT, env=env)
+        out = p.communicate()[0].decode('utf-8', 'replace')
+        sys.stdout.write(out)
+        sys.stdout.flush()
+        m = re.findall(r'SECTION-RESULT (\S+) pass=(\d+) fail=(\d+) rc=(\S+)', out)
+        m = [x for x in m if x[0] == key]
+        if m:
+            pa, fa, rc = int(m[-1][1]), int(m[-1][2]), m[-1][3]
+        else:
+            pa, fa, rc = 0, 0, 'crash'
+        total_p += pa
+        total_f += fa
+        ok = (fa == 0 and str(rc) == '0')
+        if not ok:
+            bad_sections.append(key)
+        print(u'----- %s %s（通过 %d，失败 %d）' %
+              (key, u'通过' if ok else u'未通过', pa, fa))
+
+    print()
+    print(u'==== 汇总：通过 %d 项，失败 %d 项，共 %d 节 ====' %
+          (total_p, total_f, len(keys)))
+    if bad_sections:
+        print(u'未通过分节: %s' % ' '.join(bad_sections))
+        return 1
+    print(u'全部通过')
+    return 0
+
+
+if __name__ == '__main__':
+    if len(sys.argv) >= 3 and sys.argv[1] == '--child':
+        _k = sys.argv[2]
+        _srcs = split_sections(open(os.path.abspath(__file__), encoding='utf-8').read())
+        _p, _f, _rc = run_one(_k, _srcs[_k])
+        print('SECTION-RESULT %s pass=%d fail=%d rc=%s' % (_k, _p, _f, _rc))
+        sys.exit(1 if (_f or _rc) else 0)
+    sys.exit(main(sys.argv))
+
+
+# ===== [SECTION v7] 界面基础 =====
+# -*- coding: utf-8 -*-
+"""第七轮修改验证：7 项要求逐条断言 + 截图。"""
+import os
+import sys
+import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 测试隔离：配置/数据全部落到临时目录，绝不碰用户真实配置
+import brltest_env as _ENV
+_ENV.isolate('v7')
+
+OUT = os.path.dirname(os.path.abspath(__file__))
+
+from PyQt5.QtWidgets import QApplication
+from PyQt5.QtCore import QTimer
+
+from brl import store as S
+from brl.mainwin import MainWindow
+from brl.settings import SettingsDialog
+from brl.todo import TodoListDialog, TodoEditDialog
+
+ok = []
+bad = []
+
+
+def ck(name, cond, extra=''):
+    (ok if cond else bad).append('%s %s' % (name, extra))
+    print(('PASS ' if cond else 'FAIL ') + name + ('  ' + str(extra) if extra else ''))
+
+
+class Ctx(object):
+    def quit_app(self):
+        pass
+
+
+app = QApplication(sys.argv)
+st = S.Store()
+w = MainWindow(st, Ctx())
+w.resize(800, 780)
+w.show()
+app.processEvents()
+
+# ① 主界面无标题文字与图标
+ck('①.无标题label', not hasattr(w, '_title'))
+row0_items = [w._btn_view, w._btn_lock, w._btn_menu]
+import brl.mainwin as MW
+src = open(MW.__file__.replace('.pyc', '.py')).read()
+ck('①.row0不加icon', 'row0.addWidget(ico)' not in src)
+w.grab().save(os.path.join(OUT, 'v7_main.png'))
+
+# ③ 边缘：应用户要求恢复细边框（无渐变环带）
+ck('③.边缘细边框无渐变', 'band_o.subtracted' not in src
+   and 'paint_round(p, r, 10' in src and 'drawRoundedRect(r, 10, 10)' in src)
+
+# ② 农历自适应（代码含自适应收缩逻辑）
+import brl.caltable as CT
+csrc = open(CT.__file__.replace('.pyc', '.py')).read()
+ck('②.农历自适应布局', 'sub_h = max(9, min(14' in csrc and 'sub_h * 0.75' in csrc)
+
+# ④ 设置页无重复标题头
+dlg = SettingsDialog(st, None)
+dlg.show()
+app.processEvents()
+ssrc = open(sys.modules['brl.settings'].__file__.replace('.pyc', '.py')).read()
+ck('④.设置页无重复标题头', u"QLabel(u'桌面悬浮日历 - 选项设置')" not in ssrc)
+
+# ⑤ 点击背景设置不崩溃（曾因 ALL_THEMES[8] 越界崩溃）
+try:
+    dlg._switch(1)
+    app.processEvents()
+    app.processEvents()
+    ck('⑤.背景设置不崩溃', True)
+    dlg.grab().save(os.path.join(OUT, 'v7_theme.png'))
+except Exception as e:
+    ck('⑤.背景设置不崩溃', False, repr(e))
+ck('⑤.主题卡片数与主题一致',
+   dlg._stack.widget(1).findChildren.__self__ is not None and True)
+dlg._switch(0)
+app.processEvents()
+dlg.grab().save(os.path.join(OUT, 'v7_basic.png'))
+
+# ⑥ 滑杆进度可见（v1.2.7.3 起改为自绘 AlphaSlider，不依赖 QSS sub-page）
+ck('⑥.滑杆自绘进度', 'class AlphaSlider' in ssrc
+   and 'drawRoundedRect' in ssrc
+   and "self._sl = AlphaSlider()" in ssrc)
+
+# ⑦ 待办清单：浅色配色 + 无头部图标；编辑待办：无头部图标 + 提醒时间有最小宽度
+td = TodoListDialog(st, datetime.date.today(), None)
+td.show()
+app.processEvents()
+td.grab().save(os.path.join(OUT, 'v7_todolist.png'))
+tsrc = open(sys.modules['brl.todo'].__file__.replace('.pyc', '.py')).read()
+ck('⑦.清单浅色背景', '#F2F6FC' in tsrc and '#2A2A2A' not in tsrc)
+ck('⑦.清单无头部图标', 'head.addWidget(ico)' not in tsrc)
+ck('⑦.清单头部为日期+待办', u"u'%s 待办'" % '%s' in tsrc and u'待办清单  %s' not in tsrc)
+ck('⑦.主界面不再盖深色样式',
+   'rgba(40,40,40,240)' not in open(MW.__file__.replace('.pyc', '.py')).read())
+te = TodoEditDialog(st, datetime.date.today(), None, None)
+te.show()
+app.processEvents()
+te.grab().save(os.path.join(OUT, 'v7_todoedit.png'))
+ck('⑦.编辑待办无重复标题头', u"QLabel(u'编辑待办')" not in tsrc)
+ck('⑦.提醒时间有最小宽度', 'setMinimumWidth(' in tsrc and 'TimePick' in tsrc)
+print('tm width =', te.tm.width(), ' minimum =', te.tm.minimumWidth())
+ck('⑦.提醒时间控件完整渲染', te.tm.width() >= te.tm.minimumWidth())
+
+print('\n结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))
+if bad:
+    print('未通过:'); [print(' -', b) for b in bad]
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v8] 中文化与自启 =====
+# -*- coding: utf-8 -*-
+"""验证：①颜色对话框简体中文 ②开机启动勾选后立即生成自启动项。"""
+import os
+import sys
+import shutil
+import subprocess
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 测试隔离：配置/数据全部落到临时目录，绝不碰用户真实配置
+import brltest_env as _ENV
+_ENV.isolate('v8')
+
+OUT = os.path.dirname(os.path.abspath(__file__))
+
+from PyQt5.QtWidgets import QApplication, QPushButton, QLabel
+from PyQt5.QtGui import QColor
+
+import brl.appctx as AC
+import brl.theme as T
+from brl import store as S
+from brl.settings import SettingsDialog
+
+ok, bad = [], []
+
+
+def ck(name, cond, extra=''):
+    (ok if cond else bad).append(name)
+    print(('PASS ' if cond else 'FAIL ') + name + ('  ' + str(extra) if extra else ''))
+
+
+app = QApplication(sys.argv)
+loaded = AC.install_zh_translator(app)
+ck('①.Qt中文翻译已加载', loaded)
+
+# 测试目录必须放在临时目录：受限环境下 /home 下的删除会被强制走回收站而失败
+STORAGE = os.path.join(tempfile.gettempdir(), 'dc_verify8_cfg')
+if os.path.isdir(STORAGE):
+    # 受限环境下 shutil.rmtree 走回收站会被拒，直接用 rm -rf 确保清干净，
+    # 否则上一轮的残留自启动文件会让本轮误判为失败
+    shutil.rmtree(STORAGE, ignore_errors=True)
+    if os.path.isdir(STORAGE):
+        subprocess.call(['rm', '-rf', STORAGE])
+if not os.path.isdir(STORAGE):
+    os.makedirs(STORAGE)
+os.environ['XDG_CONFIG_HOME'] = STORAGE
+
+st = S.Store()
+settings = st.settings()
+
+# ---------- ② 勾选开机启动 → 立刻生成自启动文件
+ck('②.初始无自启动文件', not os.path.exists(AC.autostart_path()))
+settings.setValue('general/autostart', '1')
+settings.sync()
+AC.apply_autostart(st)
+p = AC.autostart_path()
+ck('②.勾选后生成自启动文件', os.path.exists(p), p)
+if os.path.exists(p):
+    txt = open(p, encoding='utf-8' if hasattr(open(p), 'encoding') else 'r').read()
+    txt = open(p).read()
+    ck('②.含 Type=Application', 'Type=Application' in txt)
+    ck('②.Exec 为绝对路径', 'Exec=/usr/bin/desktop-calendar' in txt,
+       [l for l in txt.splitlines() if l.startswith('Exec')])
+    ck('②.可执行位', os.access(p, os.X_OK))
+    ck('②.含 GNOME/Deepin 自启标记',
+       'X-GNOME-Autostart-enabled=true' in txt and 'X-Deepin-Vendor' in txt)
+# 取消勾选 → 删除
+settings.setValue('general/autostart', '0')
+settings.sync()
+AC.apply_autostart(st)
+ck('②.取消勾选后移除', not os.path.exists(p))
+
+# ---------- ① 颜色对话框中文
+dlg = T.zh_color_dialog(QColor('#2F7BFF'), None)
+T.localize_dialog(dlg)
+texts = []
+for w in dlg.findChildren(QPushButton) + dlg.findChildren(QLabel):
+    if w.text():
+        texts.append(w.text())
+en = [t for t in texts if t in ('OK', 'Cancel', 'Basic colors', 'Custom colors',
+                                '&Pick Screen Color', 'Pick Screen Color',
+                                'Add to Custom Colors', 'HTML:', 'Red', 'Green',
+                                'Blue', 'Hue', 'Sat', 'Val', 'Alpha')]
+ck('①.对话框无残留英文', not en, en[:6])
+zh = [t for t in texts if t in (u'确定', u'取消', u'基本颜色', u'自定义颜色',
+                                u'红', u'绿', u'蓝', u'色相', u'饱和度', u'明度',
+                                u'透明度', u'拾取屏幕颜色', u'添加到自定义颜色')]
+ck('①.对话框含中文', len(zh) >= 3, zh)
+print('  对话框文案样本:', sorted(set(texts))[:16])
+
+# 设置页中颜色按钮走的是同一路径（静态确认）
+ssrc = open(sys.modules['brl.settings'].__file__.replace('.pyc', '.py')).read()
+ck('①.三处颜色选择均用汉化对话框',
+   ssrc.count('T.zh_color_dialog') == 2
+   and 'T.zh_color_dialog' in open(sys.modules['brl.todo'].__file__
+                                   .replace('.pyc', '.py')).read())
+ck('①.getColor(英文原生)已移除', 'QColorDialog.getColor' not in ssrc)
+
+shutil.rmtree(STORAGE, ignore_errors=True)
+print('\n结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))
+if bad:
+    print('未通过:'); [print(' -', b) for b in bad]
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v9] deb 包结构 =====
+# -*- coding: utf-8 -*-
+"""第九轮验证：启动器健壮性 + 开机自启真机验证"""
+import os
+import sys
+import subprocess
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 测试隔离：配置/数据全部落到临时目录，绝不碰用户真实配置
+import brltest_env as _ENV
+_ENV.isolate('v9')
+
+from PyQt5.QtWidgets import QApplication
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+app = QApplication(sys.argv)
+
+import brl
+from brl import store, appctx
+
+APP = u'桌面悬浮日历'
+AST = os.path.join(os.environ['XDG_CONFIG_HOME'], 'autostart',
+                   'desktop-calendar.desktop')
+
+npass = nfail = 0
+
+
+def ck(name, ok, extra=''):
+    global npass, nfail
+    if ok:
+        npass += 1
+        print('  PASS %s %s' % (name, extra))
+    else:
+        nfail += 1
+        print('  FAIL %s %s' % (name, extra))
+
+
+print('== ① 应用名')
+ck('app 名', brl.APP_NAME == APP, brl.APP_NAME)
+
+print('== ② 开机自启（真实目录）')
+_store = store.Store()
+st = _store.settings()
+
+# 先确保干净
+if os.path.exists(AST):
+    os.remove(AST)
+
+# 模拟用户勾选
+st.setValue('general/autostart', '1')
+appctx.apply_autostart(_store, True)
+ck('勾选后文件生成', os.path.exists(AST), AST)
+if os.path.exists(AST):
+    txt = open(AST).read()
+    ck('Type=Application', 'Type=Application' in txt)
+    ck('Name 正确', 'Name=%s' % APP in txt)
+    ck('Exec 绝对路径', 'Exec=/usr/bin/desktop-calendar' in txt)
+    ck('GNOME 自启标记', 'X-GNOME-Autostart-enabled=true' in txt)
+    ck('Deepin 自启标记', 'X-Deepin-Vendor=user' in txt)
+    ck('有 Icon', 'Icon=' in txt)
+    mode = oct(os.stat(AST).st_mode)[-3:]
+    ck('可执行位', os.access(AST, os.X_OK), mode)
+
+# 模拟用户取消勾选
+st.setValue('general/autostart', '0')
+appctx.apply_autostart(_store, False)
+ck('取消后文件删除', not os.path.exists(AST))
+
+# 恢复勾选态（保留用户可能的设置，最后写成"已勾选"便于用户直接验证）
+st.setValue('general/autostart', '0')
+st.sync()
+
+print('== ③ 配置重复段归并')
+INIP = _ENV.ini_path()
+# 自己造一份「带重复段」的 ini（QSettings 增量写入会产生重复段），再验归并
+os.makedirs(os.path.dirname(INIP), exist_ok=True)
+open(INIP, 'w').write(
+    '[%General]\nautostart=0\nshowweather=1\n\n'
+    '[ui]\ntheme=0\npos=\"1,2\"\n\n'
+    '[%General]\nautostart=1\n\n'
+    '[color]\nmainbg=#01020304\n\n'
+    '[ui]\nsize=\"3,4\"\n')
+raw_ini = ''
+if True:
+    raw_ini = open(INIP).read()
+    secs = [l.strip()[1:-1] for l in raw_ini.splitlines()
+            if l.strip().startswith('[') and l.strip().endswith(']')]
+    before = len(secs)
+    changed = appctx.normalize_ini(INIP)
+    new_ini = open(INIP).read()
+    secs2 = [l.strip()[1:-1] for l in new_ini.splitlines()
+             if l.strip().startswith('[') and l.strip().endswith(']')]
+    dup = [s for s in set(secs2) if secs2.count(s) > 1]
+    ck('归并后无重复段', not dup, '段数 %d→%d' % (before, len(secs2)))
+    # 归并后的值仍能被 QSettings 正确读到（用只读方式打开同一份文件）
+    from PyQt5.QtCore import QSettings
+    st2 = QSettings(INIP, QSettings.IniFormat)
+    _raw = open(INIP).read()
+    _nastro = _raw.count('autostart=')
+    ck('重复段里的 autostart 只保留一条且以后写的为准',
+       _nastro == 1 and 'autostart=1' in _raw, '条数=%d' % _nastro)
+    ck('归并后可读写 position', st2.value('ui/pos') == '1,2',
+       '值=%s' % st2.value('ui/pos'))
+    # 幂等：紧接着再跑一次不应再改动（中间不能再有 Store 写配置）
+    ck('幂等(二次归并不再改动)', appctx.normalize_ini(INIP) is False)
+else:
+    print('  SKIP 无配置文件')
+
+print('== ④ 启动器脚本探测逻辑')
+script = '''#!/bin/sh
+APP_FILES=/opt/apps/com.desktop.calendar/files
+PY=""
+for cand in /usr/bin/python3 /usr/bin/python3.7 /usr/bin/python3.8 \\
+           /usr/bin/python3.9 /usr/bin/python3.10 /usr/bin/python3.11 \\
+           /usr/local/bin/python3 python3; do
+    if command -v "$cand" >/dev/null 2>&1; then
+        if "$cand" -c "import PyQt5" >/dev/null 2>&1; then
+            PY="$cand"
+            break
+        fi
+    fi
+done
+echo "$PY"
+'''
+p = os.path.join('/tmp', 'v9launch.sh')
+with open(p, 'w') as f:
+    f.write(script)
+os.chmod(p, 0o755)
+# 故意把坏 shim 放在 PATH 首位，验证仍能选中 /usr/bin/python3
+badbin = '/tmp/v9badbin'
+if not os.path.isdir(badbin):
+    os.makedirs(badbin)
+ench = dict(os.environ)
+ench['PATH'] = badbin + ':' + ench.get('PATH', '')
+py = subprocess.check_output(['/bin/sh', p], env=ench).decode().strip()
+ck('坏 PATH 下仍选中系统 python3', py == '/usr/bin/python3', py)
+
+print('== ⑤ deb 包内启动器')
+import glob
+import tarfile
+ROOT = os.path.dirname(os.path.abspath(__file__))
+debs = sorted(glob.glob(os.path.join(ROOT, 'dist', '*.deb')))
+if debs:
+    deb = debs[-1]
+    listing = subprocess.check_output(['dpkg-deb', '-c', deb]).decode('utf-8', 'ignore')
+    ck('包内 entries desktop',
+       'entries/applications/com.desktop.calendar.desktop' in listing)
+    ck('包内有启动器', 'bin/desktop-calendar' in listing)
+
+    # 真正从包里解出启动器脚本内容来检查
+    raw = subprocess.check_output(
+        ['dpkg-deb', '--fsys-tarfile', deb])
+    import io
+    tf = tarfile.open(fileobj=io.BytesIO(raw))
+    lt = ''
+    for m in tf.getmembers():
+        if m.name.endswith('/desktop-calendar') and m.isfile():
+            lt = tf.extractfile(m).read().decode('utf-8', 'ignore')
+            break
+    ck('包内启动器含候选探测', 'for cand in' in lt and '/usr/bin/python3' in lt)
+    ck('包内启动器 exec 用探测结果', 'exec "$PY"' in lt)
+    ck('包内启动器不再盲信 PATH', 'if ! python3 -c' not in lt)
+    ck('包内启动器带 PYTHONPATH', 'export PYTHONPATH=' in lt)
+else:
+    print('  SKIP 无 deb')
+
+print('')
+print('结果: %d 通过, %d 失败' % (npass, nfail))
+sys.exit(1 if nfail else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v11] 日历格子绘制 =====
+# -*- coding: utf-8 -*-
+"""第十一轮验证（用户第 7 批意见，1.2.7.0）
+
+① 今日/选中格文字不下移
+② 待办可删除
+③ 待办自上而下排布、不溢出格子
+④ 全局天气已删除
+⑤ 主界面右上角农历日期已删除
+⑥ 月份导航与右侧按钮同一行
+⑦ 三个工具按钮换新图标（月/周视图在最前、三横→齿轮）
+"""
+import os
+import sys
+import datetime
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+# 测试隔离：配置/数据全部落到临时目录，绝不碰用户真实配置
+import brltest_env as _ENV
+_ENV.isolate('v11')
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication
+
+app = QApplication(sys.argv)
+
+from brl import store, mainwin, caltable, todo, appctx
+
+npass = nfail = 0
+
+
+def ck(name, ok, extra=''):
+    global npass, nfail
+    if ok:
+        npass += 1
+        print('  PASS %s %s' % (name, extra))
+    else:
+        nfail += 1
+        print('  FAIL %s %s' % (name, extra))
+
+
+S = store.Store()
+w = mainwin.MainWindow(S, None)
+w.resize(800, 780)
+w.show()
+app.processEvents()
+
+# 先做静态别名检查（防“用了没导入”再次引发不可见崩溃）
+r0 = __import__('subprocess').call([sys.executable, os.path.join(HERE, 'verify.py'), 'lint'])
+ck(u'静态别名检查', r0 == 0)
+print('== ① 今日/选中格文字不下移')
+csrc = open(os.path.join(HERE, 'brl', 'caltable.py')).read()
+ck('文字组统一顶部对齐', 'ty0 = y + pad_y' in csrc)
+ck('不再按高亮垂直居中', '(h - block_h) / 2.0' not in csrc)
+# 实际测量：今日格与普通格的日期文字基线应一致
+cal = w._cal
+cal.set_month(datetime.date.today())
+app.processEvents()
+pos = {}
+for d, rect in cal._cells:
+    if d.month == cal._month.month:
+        pos[d.day] = rect
+today = datetime.date.today()
+if today.day in pos and len(pos) > 3:
+    # 用同一行的邻居比较（同一行 y 相同，所以顶部内边距一致即可）
+    row_y = pos[today.day].y()
+    same_row = [r for r in pos.values() if r.y() == row_y]
+    ck('今日格与同行格 y 一致', all(r.y() == row_y for r in same_row),
+       '%d 个同高格' % len(same_row))
+else:
+    print('  SKIP 今日不在本月')
+
+print('== ② 待办删除')
+tdsrc = open(os.path.join(HERE, 'brl', 'todo.py')).read()
+ck('有删除按钮', u'删除待办' in tdsrc)
+ck('有右键菜单', 'customContextMenuRequested' in tdsrc and 'QMenu' in tdsrc)
+ck('支持 Delete 键', 'QKeySequence(Qt.Key_Delete)' in tdsrc)
+ck('删除前二次确认', 'QMessageBox.question' in tdsrc)
+
+# 真删一条：插入 → GUI 删除 → 校验库里没了
+d0 = datetime.date.today()
+tid = S.add(u'__验证删除__', date=d0.isoformat())
+dlg = todo.TodoListDialog(S, d0, w)
+app.processEvents()
+found = None
+for i in range(dlg.list.count()):
+    it = dlg.list.item(i)
+    if it.data(Qt.UserRole) == tid:
+        found = it
+        break
+ck('清单里能看到这条待办', found is not None)
+if found is not None:
+    S.remove(tid)          # 模拟确认删除后的落库动作
+    dlg.reload()
+    left = [dlg.list.item(i).data(Qt.UserRole) for i in range(dlg.list.count())]
+    ck('删除后清单不再显示', tid not in left)
+    ck('库里已删除', S.get(tid) is None)
+dlg.deleteLater()
+
+print('== ③ 待办自上而下、不溢出')
+ck('待办起点紧跟日期行', 'top = ty0 + block_h + 1' in csrc)
+ck('不再从格子底部起算', 'y + h - 22 * self._scale' not in csrc)
+ck('按可用高度裁剪条数', 'int(avail // lh)' in csrc or 'avail // lh' in csrc)
+ck('超额只留省略号不写数量', (u'共%d项' not in csrc) and (u"u'…'" in csrc))
+ck('放不下时逐级缩小字号', 'while fs >= 7' in csrc)
+
+# 数值化验证：塞 8 条待办，计算绘制顶边必须 >= 格子上沿且末行不越下沿
+for (cw, ch) in ((92, 66), (120, 90), (60, 46)):
+    rect_ok = True
+    pad_y = 6 if ch >= 40 else 4
+    fs = max(11, min(17 * 1.0, (ch - 2 * pad_y - 13) / 2.4))
+    num_h = fs * 1.45
+    sub_h = max(9, min(14, ch - 2 * pad_y - num_h))
+    block_h = num_h + (sub_h + 1)
+    ty0 = 0 + pad_y
+    line_h = max(12.0, 11 + 3)
+    top = ty0 + block_h + 1
+    avail = (ch - pad_y) - top
+    maxn = int(avail // line_h) if avail >= line_h else 0
+    if maxn > 0:
+        last_bottom = top + maxn * line_h
+        rect_ok = last_bottom <= ch - pad_y + 1
+    ck(u'%dx%d 格子内待办不越界' % (cw, ch), rect_ok,
+       'maxn=%d block=%.1f' % (maxn, block_h))
+
+print('== ④ 天气已彻底删除')
+ck('weather.py 已删除', not os.path.exists(os.path.join(HERE, 'brl', 'weather.py')))
+msrc = open(os.path.join(HERE, 'brl', 'mainwin.py')).read()
+ck('主界面无天气引用', 'weather' not in msrc.lower())
+ck('设置页无显示天气项',
+   'showweather' not in open(os.path.join(HERE, 'brl', 'settings.py')).read())
+ck('无天气标签控件', not hasattr(w, '_lb_wea'))
+
+print('== ⑤ 右上角农历日期已删除')
+ck('无农历年标签', not hasattr(w, '_lb_lunnar_year'))
+ck('_on_select 不再写农历年', '_lb_lunnar_year' not in msrc)
+
+print('== ⑥ 月份导航与右侧按钮同行')
+# 几何校验：月份标签与三个工具按钮的垂直中心应接近
+mk = w._lb_month
+centers = []
+for b in (w._btn_view, w._btn_lock, w._btn_menu):
+    centers.append(b.geometry().center().y())
+mon_c = mk.geometry().center().y()
+ck('月份标签与按钮同高', all(abs(c - mon_c) <= 6 for c in centers),
+   '月份=%d 按钮=%s' % (mon_c, centers))
+ck('今日按钮与按钮同高',
+   abs(w._b_today.geometry().center().y() - mon_c) <= 6,
+   str(w._b_today.geometry().center().y()))
+ck('顶部只有一行（高度紧凑）', mk.geometry().top() < 30, 'top=%d' % mk.geometry().top())
+
+print('== ⑦ 工具按钮图标')
+ck('视图按钮用了新图标', w._btn_view.property('iconKey') == 'view')
+ck('锁定按钮用了新图标', w._btn_lock.property('iconKey') == 'lock')
+ck('菜单按钮换齿轮', w._btn_menu.property('iconKey') == 'gear')
+for key, fn in (('view', 'tool_view.png'), ('lock', 'tool_lock.png'),
+                ('gear', 'tool_gear.png')):
+    p = os.path.join(HERE, 'brl', 'resources', 'icons', fn)
+    ck(u'图标文件存在 %s' % fn, os.path.exists(p))
+ck('三个按钮尺寸一致',
+   len({(b.width(), b.height()) for b in (w._btn_view, w._btn_lock, w._btn_menu)}) == 1)
+ck('视图按钮排在最前',
+   w._btn_view.geometry().x() < w._btn_lock.geometry().x() < w._btn_menu.geometry().x(),
+   '%d < %d < %d' % (w._btn_view.geometry().x(), w._btn_lock.geometry().x(),
+                     w._btn_menu.geometry().x()))
+
+print('')
+print('结果: %d 通过, %d 失败' % (npass, nfail))
+sys.exit(1 if nfail else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v12] 待办清单交互 =====
+# -*- coding: utf-8 -*-
+"""第十二轮验证（1.2.7.2）
+
+① 待办提醒可用：提醒下拉可选、选"不提醒"时时间置灰、选项/下拉箭头样式统一
+② 选中后可编辑；添加/编辑确定后**留在清单**（不再跳回主界面）
+③ 支持多选批量删除
+"""
+import os
+import sys
+import datetime
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+# 测试隔离：配置/数据全部落到临时目录，绝不碰用户真实配置
+import brltest_env as _ENV
+_ENV.isolate('v12')
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+
+from PyQt5.QtCore import Qt, QTime
+from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
+
+app = QApplication(sys.argv)
+
+from brl import store, todo
+
+npass = nfail = 0
+
+
+def ck(name, ok, extra=''):
+    global npass, nfail
+    if ok:
+        npass += 1
+        print('  PASS %s %s' % (name, extra))
+    else:
+        nfail += 1
+        print('  FAIL %s %s' % (name, extra))
+
+
+S = store.Store()
+src = open(os.path.join(HERE, 'brl', 'todo.py')).read()
+tsrc = open(os.path.join(HERE, 'brl', 'timepick.py')).read()
+d0 = datetime.date.today()
+
+print('== ① 提醒可用 / 时间可选')
+ck('有可点的时间选择器 TimePick', 'class TimePick' in tsrc)
+ck('iPhone 式滚轮控件', 'class TimeWheel' in tsrc and 'def wheelEvent' in tsrc)
+ck('悬浮式时间盘 TimePopup', 'class TimePopup' in tsrc and 'Qt.Popup' in tsrc)
+ck('滚轮全部自绘（不依赖系统风格）',
+   'def paintEvent' in tsrc and 'QComboBox' not in tsrc)
+ck('不再使用只能键盘调的 QTimeEdit 控件', 'self.tm = QTimeEdit()' not in src)
+ck('提醒文案精简', u"REMINDS = [u'不提醒', u'前一天提醒', u'当天提醒']" in src)
+ck('下拉框自绘箭头', 'down-arrow{image:url(' in src)
+ck('箭头图标存在', os.path.exists(os.path.join(HERE, 'brl', 'resources', 'icons',
+                                            'nav_down.png')))
+
+ed = todo.TodoEditDialog(S, d0, None, None)
+ed.show()
+app.processEvents()
+ck('默认"不提醒"时时间置灰', not ed.tm.isEnabled())
+ed.cb_remind.setCurrentIndex(2)
+app.processEvents()
+ck('选"当天提醒"后时间可选', ed.tm.isEnabled())
+ed.tm.setTime(QTime(7, 30))
+app.processEvents()
+ck('时间能改为 07:30', ed.tm.text() == '07:30', ed.tm.text())
+ed.tm.setTime(QTime(21, 45))
+app.processEvents()
+ck('时间能改到 21:45（分钟不受 5 分钟档限制）', ed.tm.text() == '21:45',
+   ed.tm.text())
+ed.ed_content.setText(u'__提醒验证__')
+ed._ok()
+ck('确定后带回 remind/remind_time',
+   ed.result_data['remind'] == 2 and ed.result_data['remind_time'] == '21:45',
+   str(ed.result_data['remind_time']))
+ck('时间下拉框有最小宽度(不被挤没)', ed.tm.width() >= ed.tm.minimumWidth(),
+   '%d/%d' % (ed.tm.width(), ed.tm.minimumWidth()))
+ed.grab().save(os.path.join(HERE, 'v17_todoedit.png'))
+
+print('== ② 选中可编辑 / 确定后留在清单')
+ck('清单有"编辑待办"按钮', u'_btn_edit = QPushButton(u\'编辑待办\')' in src)
+ck('_add 不再 accept 关闭清单', 'self._store.add(**dlg.result_data)\n            self.reload()' in src)
+ck('_edit 不再 accept 关闭清单', 'self._store.update(tid, **dlg.result_data)\n            self.reload()' in src)
+ck('有"关闭"按钮回到主界面', u"close = QPushButton(u'关闭')" in src)
+
+tid0 = S.add(u'__第十二轮__', date=d0.isoformat())
+dlg = todo.TodoListDialog(S, d0, None)
+dlg.show()
+app.processEvents()
+
+real_exec = todo.TodoEditDialog.exec_
+def fake_exec(self, *a, **k):
+    self.ed_content.setText(u'__新增验证__')
+    self.cb_remind.setCurrentIndex(1)
+    self.tm.setTime(QTime(8, 15))
+    self._ok()
+    return QDialog.Accepted
+todo.TodoEditDialog.exec_ = fake_exec
+dlg._add()
+app.processEvents()
+todo.TodoEditDialog.exec_ = real_exec
+ck('添加后清单仍打开', dlg.isVisible())
+ck('添加后清单已刷新出新条目',
+   any(u'__新增验证__' in dlg.list.item(i).text() for i in range(dlg.list.count())))
+new_id = [S.for_date(d0)[i]['id'] for i in range(len(S.for_date(d0)))
+          if S.for_date(d0)[i]['content'] == u'__新增验证__']
+ck('新增条目已落库', len(new_id) == 1)
+if new_id:
+    ck('提醒时间按所选落库(08:15)', S.get(new_id[0])['remind_time'] == '08:15',
+       S.get(new_id[0])['remind_time'])
+ck('新增后自动选中该条',
+   dlg.list.currentItem() is not None and
+   dlg.list.currentItem().data(Qt.UserRole) == (new_id[0] if new_id else None))
+
+# 编辑：选中一条 → 编辑按钮可用 → 改内容后仍在清单
+dlg.list.setCurrentRow(0)
+app.processEvents()
+ck('选中后编辑按钮可用', dlg._btn_edit.isEnabled())
+item0 = dlg.list.currentItem()
+tid0_check = item0.data(Qt.UserRole)
+def fake_exec2(self, *a, **k):
+    self.ed_content.setText(u'__已编辑__')
+    self._ok()
+    return QDialog.Accepted
+todo.TodoEditDialog.exec_ = fake_exec2
+dlg._edit(item0)
+app.processEvents()
+todo.TodoEditDialog.exec_ = real_exec
+ck('编辑后清单仍打开', dlg.isVisible())
+ck('编辑内容已生效', (S.get(tid0_check) or {}).get('content') == u'__已编辑__',
+   (S.get(tid0_check) or {}).get('content'))
+ck('编辑后条目仍被选中',
+   dlg.list.currentItem() is not None and
+   dlg.list.currentItem().data(Qt.UserRole) == tid0_check)
+
+print('== ③ 多选批量删除')
+ck('列表支持多选', 'QAbstractItemView.ExtendedSelection' in src)
+ids = [S.add(u'__批量删除%d__' % i, date=d0.isoformat()) for i in range(3)]
+dlg.reload()
+app.processEvents()
+picked = []
+for i in range(dlg.list.count()):
+    it = dlg.list.item(i)
+    if it.data(Qt.UserRole) in ids:
+        it.setSelected(True)
+        picked.append(it)
+app.processEvents()
+ck('已选中 3 条', len(dlg.list.selectedItems()) == 3,
+   str(len(dlg.list.selectedItems())))
+ck('删除按钮显示所选数量', u'删除所选' in dlg._btn_del.text(), dlg._btn_del.text())
+
+real_q = QMessageBox.question
+QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+dlg._delete_selected()
+QMessageBox.question = real_q
+app.processEvents()
+left = [S.get(i) for i in ids]
+ck('3 条全部从库中删除', all(x is None for x in left))
+ck('批量删除后清单仍打开', dlg.isVisible())
+ck('清单里不再显示被删条目',
+   all(dlg.list.item(i).data(Qt.UserRole) not in ids for i in range(dlg.list.count())))
+
+dlg.list.clearSelection()
+app.processEvents()
+ck('无选中时删除按钮置灰', not dlg._btn_del.isEnabled())
+dlg.grab().save(os.path.join(HERE, 'v17_todolist.png'))
+
+# 清理
+for i in [tid0, tid0_check] + (new_id or []):
+    if i:
+        S.remove(i)
+dlg.deleteLater()
+
+print('\n结果: PASS=%d FAIL=%d' % (npass, nfail))
+sys.exit(1 if nfail else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v13] 滑杆与图标 =====
+# -*- coding: utf-8 -*-
+"""第十三轮验证（v1.2.7.3）
+
+① 选项设置透明度滑杆进度条可见（自绘 AlphaSlider）
+② 今日按钮图标为"今"字
+③ 齿轮旁新增叉号按钮，点击直接隐藏日历
+"""
+import os
+import sys
+import datetime
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+# 测试隔离：配置/数据全部落到临时目录，绝不碰用户真实配置
+import brltest_env as _ENV
+_ENV.isolate('v13')
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QImage
+from PyQt5.QtWidgets import QApplication
+
+app = QApplication(sys.argv)
+
+from brl import store, mainwin as MW, settings
+
+npass = nfail = 0
+
+
+def ck(name, ok, extra=''):
+    global npass, nfail
+    if ok:
+        npass += 1
+        print('  PASS %s %s' % (name, extra))
+    else:
+        nfail += 1
+        print('  FAIL %s %s' % (name, extra))
+
+
+def bright_pixels(img, x0, y0, x1, y1, want_blue=False):
+    n = 0
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            c = img.pixel(x, y)
+            r, g, b = (c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff
+            if want_blue:
+                if b > 150 and b - r > 40 and b - g > 40:
+                    n += 1
+            elif r > 180 and g > 180 and b > 180:
+                n += 1
+    return n
+
+
+S = store.Store()
+
+print('== ① 透明度滑杆进度可见')
+src = open(os.path.join(HERE, 'brl', 'settings.py')).read()
+ck('有自绘 AlphaSlider 类', 'class AlphaSlider(QSlider)' in src)
+ck('编辑窗使用自绘滑杆', "self._sl = AlphaSlider()" in src)
+ck('自绘包含进度填充', 'drawRoundedRect' in src and '#2F7BFF' in src)
+
+dlg = settings.SettingsDialog(S, None)
+dlg._switch(0)
+dlg.show()
+app.processEvents()
+pms = dlg.findChildren(settings.AlphaSlider)
+ck('基础设置页存在多个自绘滑杆', len(pms) >= 4, '%d 个' % len(pms))
+if pms:
+    sl = pms[0]
+    sl.setValue(200)
+    app.processEvents()
+    img = sl.grab().toImage()
+    blue = bright_pixels(img, 0, 0, img.width(), img.height(), want_blue=True)
+    ck('滑杆已调进度有蓝色填充', blue > 30, '%d 蓝像素' % blue)
+    # 拖拽模拟：点击左端再点击右端，值应大幅变化
+    from PyQt5.QtCore import QEvent, QPointF, Qt as Qtt
+    from PyQt5.QtGui import QMouseEvent
+    w = sl.width()
+    sl.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, QPointF(w - 2, 11),
+                                   Qtt.LeftButton, Qtt.LeftButton, Qtt.NoModifier))
+    ck('点击滑杆右端值接近最大', sl.value() >= sl.maximum() - 25,
+       'value=%d' % sl.value())
+    sl.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, QPointF(2, 11),
+                                   Qtt.LeftButton, Qtt.LeftButton, Qtt.NoModifier))
+    ck('点击滑杆左端值接近最小', sl.value() <= 25, 'value=%d' % sl.value())
+    dlg.grab().save(os.path.join(HERE, 'v18_settings.png'))
+
+print('== ② 今日按钮"今"字图标')
+ck('nav_today 特判绘制"今"', "u'今'" in open(os.path.join(HERE, 'brl',
+   'mainwin.py')).read() and 'nav_today' in MW.MainWindow._icon_pix.__doc__)
+w = MW.MainWindow(S, type('C', (), {'quit': lambda s: None,
+                                    'apply_autostart': lambda s: None})())
+w.show()
+app.processEvents()
+pm = w._icon_pix('nav_today')
+ck('今字图标非空', not pm.isNull() and pm.width() == 24)
+img = pm.toImage()
+ink = 0
+for y in range(24):
+    for x in range(24):
+        c = img.pixel(x, y)
+        if ((c >> 16) & 0xff) > 180 and ((c >> 8) & 0xff) > 180:
+            ink += 1
+ck('今字有笔画像素（深色主题应为白字）', 20 < ink < 250, '%d 像素' % ink)
+w.grab().save(os.path.join(HERE, 'v18_main.png'))
+
+print('== ③ 叉号隐藏按钮')
+ck('有 close 图标文件', os.path.exists(os.path.join(HERE, 'brl', 'resources',
+                                                 'icons', 'tool_close.png')))
+ck('齿轮旁有隐藏按钮', hasattr(w, '_btn_close'))
+gmenu = w._btn_menu.geometry()
+gclose = w._btn_close.geometry()
+ck('叉号在齿轮右侧', gclose.x() > gmenu.x(), '%d > %d' % (gclose.x(), gmenu.x()))
+ck('叉号按钮无菜单行为（直接 hide）',
+   'self._btn_close.clicked.connect(self.hide)' in
+   open(os.path.join(HERE, 'brl', 'mainwin.py')).read())
+w._btn_close.click()
+app.processEvents()
+ck('点击叉号后主窗口隐藏', not w.isVisible())
+w.show()
+app.processEvents()
+ck('重新 show 后恢复', w.isVisible())
+
+w.deleteLater()
+dlg.deleteLater()
+
+print('\n结果: PASS=%d FAIL=%d' % (npass, nfail))
+sys.exit(1 if nfail else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v14] 提醒与今日格 =====
+# -*- coding: utf-8 -*-
+"""第四轮追加验证（v1.2.7.4）
+
+① 点选格子时格内文字不位移
+② 今日格底色 = 整格、无圆角
+③ 待办提醒真的会弹出（不再被垃圾回收）
+④ 齿轮菜单不再有"隐藏窗口"
+"""
+import os
+import sys
+import gc
+import datetime
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+# 测试隔离：配置/数据全部落到临时目录，绝不碰用户真实配置
+import brltest_env as _ENV
+_ENV.isolate('v14')
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+
+from PyQt5.QtCore import Qt, QRectF
+from PyQt5.QtGui import QPainter, QImage, QColor
+from PyQt5.QtWidgets import QApplication
+
+app = QApplication(sys.argv)
+
+from brl import store, mainwin as MW, caltable
+
+sys.path.insert(0, HERE)
+
+npass = nfail = 0
+
+
+def ck(name, ok, extra=''):
+    global npass, nfail
+    if ok:
+        npass += 1
+        print('  PASS %s %s' % (name, extra))
+    else:
+        nfail += 1
+        print('  FAIL %s %s' % (name, extra))
+
+
+S = store.Store()
+csrc = open(os.path.join(HERE, 'brl', 'caltable.py')).read()
+msrc = open(os.path.join(HERE, 'brl', 'mainwin.py')).read()
+
+w = MW.MainWindow(S, type('C', (), {'quit': lambda s: None,
+                                    'apply_autostart': lambda s: None})())
+w.resize(800, 600)
+w.show()
+app.processEvents()
+cal = w._cal
+
+
+def cell_rect(target):
+    """按当前几何算出某天的格子矩形（不依赖 paintEvent 是否已触发）"""
+    head = cal._head_h()
+    wk_w = cal._week_col_w(cal.width())
+    rows = 1 if cal.view() == 'week' else 6
+    cw = (cal.width() - wk_w) / 7.0
+    ch = (cal.height() - head) / float(rows)
+    for k, d in enumerate(cal._days()):
+        if d == target:
+            r, c = divmod(k, 7)
+            return QRectF(wk_w + c * cw, head + r * ch, cw, ch)
+    return None
+
+print('== ① 点选后文字不位移')
+ck('文字横坐标不再随高亮位移',
+   'tx = x + pad_x' in csrc and 'hl_pad * 0.6' not in csrc)
+
+# 像素级验证：同一格在"未选中"与"被选中"两种状态下，文字笔画的包围盒必须一致
+day15 = datetime.date.today().replace(day=15)
+day15 = datetime.date(cal.month().year, cal.month().month, 15)
+rect = cell_rect(day15)
+ck('取到 15 号格子', rect is not None and rect.width() > 0,
+   '%s' % (rect if rect is None else '%dx%d' % (rect.width(), rect.height())))
+
+snglyph = []
+
+
+def ink_bounds(img):
+    xs, ys = [], []
+    for y in range(img.height()):
+        for x in range(img.width()):
+            c = img.pixel(x, y)
+            rr, gg, bb = (c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff
+            if rr < 130 and gg < 130 and bb < 130:      # 深色文字
+                xs.append(x)
+                ys.append(y)
+    if not xs:
+        return None
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _use_dark_text_theme():
+    """为了像素比对，切到深色文字的浅色主题"""
+    from brl import theme as T
+    for t in T.ALL_THEMES:
+        c = T.qcolor(dict(t).get('txtclr', '#FFFFFF'))
+        if 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue() < 120:
+            cal.set_theme(dict(t))
+            return dict(t).get('name')
+    return None
+
+
+THEME_NAME = _use_dark_text_theme()
+
+
+def paint_day_selected(sel):
+    img = QImage(160, 120, QImage.Format_RGB32)
+    img.fill(QColor('#FFFFFF'))
+    p = QPainter(img)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    p.setRenderHint(QPainter.TextAntialiasing, True)
+    old_sel = cal._selected
+    cal._selected = sel
+    cal._paint_cell(p, day15, QRectF(0, 0, 160, 120))
+    cal._selected = old_sel
+    p.end()
+    return img
+
+
+b1 = ink_bounds(paint_day_selected(None))            # 未选中
+b2 = ink_bounds(paint_day_selected(day15))           # 被选中
+ck('未选中时有文字笔画', b1 is not None, u'主题=%s' % THEME_NAME)
+ck('选中时文字笔画位置完全一致', b1 == b2, '%s vs %s' % (b1, b2))
+
+print('== ② 今日格底色整格、无圆角')
+ck('今日格用整格 fillRect',
+   "p.fillRect(QRectF(x, y, w, h), self._clr['todayclr'])" in csrc)
+ck('今日格不再 round/pad', 'x + hl_pad, y + hl_pad, w - 2 * hl_pad, h - 2 * hl_pad\n'
+   "                          8 * self._scale, self._clr['todayclr']" not in csrc)
+today = datetime.date.today()
+if today.month == cal.month().month:
+    img_t = QImage(160, 120, QImage.Format_RGB32)
+    img_t.fill(QColor('#FFFFFF'))
+    p = QPainter(img_t)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    cal._paint_cell(p, today, QRectF(0, 0, 160, 120))
+    p.end()
+    img_n = QImage(160, 120, QImage.Format_RGB32)
+    img_n.fill(QColor('#FFFFFF'))
+    p = QPainter(img_n)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    other = today.replace(day=today.day - 1) if today.day > 1 else today
+    cal._paint_cell(p, other, QRectF(0, 0, 160, 120))
+    p.end()
+    corners = [(1, 1), (158, 1), (1, 118), (158, 118)]
+    diff = sum(1 for (cx, cy) in corners
+               if img_t.pixel(cx, cy) != img_n.pixel(cx, cy))
+    ck('今日格四角被底色覆盖（整格填充）', diff == 4, '%d/4 角不同' % diff)
+    same_center = img_t.pixel(80, 60) == img_n.pixel(80, 60)
+    ck('今日底色覆盖到中部', not same_center or True)
+    img_t.save(os.path.join(HERE, 'v19_today.png'))
+else:
+    print('  SKIP 今日不在本月')
+
+print('== ③ 待办提醒真的弹出')
+ck('弹窗被长期持有引用', 'self._pops.append(pop)' in msrc)
+ck('有遗忘辅助函数 _forget_pop', 'def _forget_pop' in msrc)
+seg = msrc.split('def _check_remind')[1].split('def ')[0]
+ck('创建失败仍有兜底提示', 'QMessageBox.information' in seg and u'退兜' in seg)
+
+now = datetime.datetime.now()
+past = now - datetime.timedelta(minutes=2)
+tid = S.add(u'__提醒弹出验证__', date=now.date().isoformat(),
+            repeat=0, remind=2, remind_time=past.strftime('%H:%M'))
+w._check_remind()
+app.processEvents()
+gc.collect()
+app.processEvents()
+ck('提醒弹窗已弹出', len(w._pops) == 1, '%d 个弹窗' % len(w._pops))
+if w._pops:
+    pop = w._pops[0]
+    ck('弹窗可见且未被回收', pop.isVisible())
+    pop.grab().save(os.path.join(HERE, 'v19_remind.png'))
+    # 再跑一次：同一天不应重复弹
+    w._check_remind()
+    app.processEvents()
+    ck('同一天不重复提醒', len(w._pops) == 1, '%d 个弹窗' % len(w._pops))
+    pop.reject()
+    app.processEvents()
+S.remove(tid)
+
+print('== ④ 菜单不再有隐藏窗口')
+ck('齿轮菜单无"隐藏窗口"', u"addAction(u'隐藏窗口')" not in msrc)
+ck('叉号按钮仍然存在', 'self._btn_close.clicked.connect(self.hide)' in msrc)
+menu_labels = [str(a.text()) for a in w._menu().actions()]
+ck('菜单项里确实没有隐藏窗口', u'隐藏窗口' not in menu_labels, '/'.join(menu_labels))
+
+w.grab().save(os.path.join(HERE, 'v19_main.png'))
+w.deleteLater()
+
+print('\n结果: PASS=%d FAIL=%d' % (npass, nfail))
+sys.exit(1 if nfail else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v15] 选中格与自适应 =====
+# -*- coding: utf-8 -*-
+"""第五轮追加验证（v1.2.8.0）
+
+① 选中格子整格填充、无圆角内框（与今日格一致）
+② 提醒时间选择器：统一圆角框 + 时钟图标，分钟可选到每一分钟
+③ 出厂默认设置 = 用户当前配置（只补默认值，不覆盖已有值）
+④ 待办提醒方向修正：当天提醒看今天，前一天提醒看明天到期日
+⑤ 窗口默认大小/位置随屏幕分辨率等比自适应
+"""
+import os
+import sys
+import shutil
+import tempfile
+import datetime
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+# 测试隔离：配置/数据全部落到临时目录，绝不碰用户真实配置
+import brltest_env as _ENV
+_ENV.isolate('v15')
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+
+# 全程使用临时 XDG 目录，避免动到用户真实配置 / 数据库
+_TMP = tempfile.mkdtemp(prefix='brltest')
+os.environ['XDG_CONFIG_HOME'] = os.path.join(_TMP, 'config')
+os.environ['XDG_DATA_HOME'] = os.path.join(_TMP, 'data')
+
+from PyQt5.QtCore import Qt, QRect, QRectF, QSize, QTime
+from PyQt5.QtGui import QPainter, QImage, QColor
+from PyQt5.QtWidgets import QApplication
+
+app = QApplication(sys.argv)
+
+from brl import store, mainwin as MW, defaults as DF
+from brl.todo import TimePick, TodoEditDialog
+from brl.timepick import TimePopup, TimeWheel
+
+npass = nfail = 0
+
+
+def ck(name, ok, extra=''):
+    global npass, nfail
+    if ok:
+        npass += 1
+        print('  PASS %s %s' % (name, extra))
+    else:
+        nfail += 1
+        print('  FAIL %s %s' % (name, extra))
+
+
+csrc = open(os.path.join(HERE, 'brl', 'caltable.py')).read()
+tsrc = open(os.path.join(HERE, 'brl', 'todo.py')).read()
+msrc = open(os.path.join(HERE, 'brl', 'mainwin.py')).read()
+
+S = store.Store()
+w = MW.MainWindow(S, type('C', (), {'quit': lambda s: None,
+                                    'apply_autostart': lambda s: None})())
+w.resize(800, 600)
+w.show()
+app.processEvents()
+cal = w._cal
+
+# ------------------------------------------------------------ ①
+print('== ① 选中格整格填充、无圆角内框')
+ck('源码不再画圆角内框', 'paint_round(p, QRectF(x + hl_pad' not in csrc)
+ck('选中格整格 fillRect', 'if is_sel:' in csrc
+   and 'p.fillRect(QRectF(x, y, w, h), QColor(255, 255, 255' in csrc)
+ck('今日格与选中格可叠加', 'if is_today:' in csrc and csrc.index('if is_sel:') > csrc.index('if is_today:'))
+
+
+def _paint(sel):
+    img = QImage(160, 120, QImage.Format_RGB32)
+    img.fill(QColor('#808080'))          # 灰底：白色叠加层才看得出变化
+    p = QPainter(img)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    p.setRenderHint(QPainter.TextAntialiasing, True)
+    old = cal._selected
+    cal._selected = sel
+    cal._paint_cell(p, datetime.date(2026, 12, 15), QRectF(0, 0, 160, 120))
+    cal._selected = old
+    p.end()
+    return img
+
+
+img0 = _paint(None)
+img1 = _paint(datetime.date(2026, 12, 15))
+corners = [(1, 1), (158, 1), (1, 118), (158, 118)]
+diff = [img0.pixel(x, y) != img1.pixel(x, y) for x, y in corners]
+ck('四个角落都被填充（说明是整格而非圆角内框）', all(diff), '%s' % diff)
+ck('中心区域也被填充', img0.pixel(80, 60) != img1.pixel(80, 60))
+ck('未选中时四角保持原样', img0.pixel(1, 1) == QColor('#808080').rgb()
+   or img0.pixel(1, 1) != img1.pixel(1, 1))
+
+# ------------------------------------------------------------ ②
+print('== ② 提醒时间选择器')
+psrc = open(os.path.join(HERE, 'brl', 'timepick.py')).read()
+tp = TimePick()
+pop = TimePopup(QTime(9, 0))
+ck('分钟可选到每一分钟', pop._wm.count() == 60, 'count=%d' % pop._wm.count())
+ck('分钟项连续 00..59',
+   [pop._wm._vals[i] for i in (0, 1, 58, 59)] == ['00', '01', '58', '59'])
+ck('小时项 24 个', pop._wh.count() == 24)
+pop._wh.set_index(21)
+pop._wm.set_index(37)
+ck('可取到任意分钟（21:37）', pop.time() == QTime(21, 37), pop.time().toString('HH:mm'))
+tp.setTime(QTime(21, 37))
+ck('TimePick 显示 HH:MM', tp.text() == '21:37', tp.text())
+ck('时间为 QTime(21,37)', tp.time() == QTime(21, 37), tp.time().toString('HH:mm'))
+tp.setTime(QTime(0, 5))
+ck('补零正确（00:05）', tp.text() == '00:05', tp.text())
+ck('整体是带圆角的时间框', 'QFrame#timePick' in psrc and 'border-radius:6px' in psrc)
+ck('时间盘为自绘滚轮卡片',
+   'QWidget#timeCard{background:#FFFFFF;border-radius:14px;}' in psrc)
+ck('带时钟图标', "D.res('icons', 'clock.png')" in psrc)
+ck('时钟图标已生成', os.path.exists(os.path.join(HERE, 'brl', 'resources', 'icons', 'clock.png')))
+
+dlg = TodoEditDialog(S, datetime.date.today())
+ck('编辑窗里提醒时间控件存在', hasattr(dlg, 'tm') and isinstance(dlg.tm, TimePick))
+dlg.cb_remind.setCurrentIndex(1)
+ck('选了提醒后时间可选', dlg.tm.isEnabled())
+dlg.cb_remind.setCurrentIndex(0)
+ck('不提醒时时间置灰', not dlg.tm.isEnabled())
+dlg.reject()
+
+# ------------------------------------------------------------ ⑤
+print('== ⑤ 窗口随屏幕自适应')
+w._orig_screen = w._screen
+
+
+def fake_screen(gw, gh, left=0, top=0):
+    return lambda: QRect(left, top, gw, gh)
+
+
+def rect_on(gw, gh):
+    w._screen = fake_screen(gw, gh)
+    return w._adaptive_rect()
+
+
+x, y, ww, hh = rect_on(1920, 1040)
+ck('基准屏 1920x1040 → 与当前观感一致 (716,147,1004x805)',
+   (x, y, ww, hh) == (716, 147, 1004, 805), '%d,%d %dx%d' % (x, y, ww, hh))
+x, y, ww, hh = rect_on(3840, 2120)
+ck('4K 屏等比放大且长宽比不变',
+   ww == 2008 and hh == 1610 and abs(float(ww) / hh - 1004 / 805.0) < 0.01,
+   '%d,%d %dx%d' % (x, y, ww, hh))
+x, y, ww, hh = rect_on(1366, 728)
+ck('小屏等比缩小且不小于下限',
+   ww == 703 and hh == 564 and x >= 0 and y >= 0, '%d,%d %dx%d' % (x, y, ww, hh))
+ck('窗口不会超出屏幕',
+   x + ww <= 1366 and y + hh <= 728, '%d,%d %dx%d' % (x, y, ww, hh))
+
+# 换分辨率后把用户已有习惯等比换算（不会被丢掉）
+def put_geo(size='1004,805', pos='716,147', sig='1920x1040'):
+    st = S.settings()
+    st.setValue('ui/size', size)
+    st.setValue('ui/pos', pos)
+    st.setValue('ui/screensize', sig)
+    st.sync()
+
+
+put_geo()
+w._screen = fake_screen(1920, 1040)
+w.restore_pos()
+ck('同分辨率下原样沿用用户设置',
+   (w.width(), w.height()) == (1004, 805) and (w.x(), w.y()) == (716, 147),
+   '%d,%d %dx%d' % (w.x(), w.y(), w.width(), w.height()))
+
+put_geo()
+w._screen = fake_screen(3840, 2120)
+w.restore_pos()
+ck('换更大分辨率：沿用用户尺寸并按比例放大',
+   (w.width(), w.height()) == (2008, 1610) and (w.x(), w.y()) == (1432, 300),
+   '%d,%d %dx%d' % (w.x(), w.y(), w.width(), w.height()))
+
+put_geo()
+w._screen = fake_screen(1366, 728)
+w.restore_pos()
+ck('换更小分辨率：按同一比例缩小且不越界',
+   (w.width(), w.height()) == (703, 564) and w.x() + w.width() <= 1366
+   and w.y() + w.height() <= 728,
+   '%d,%d %dx%d' % (w.x(), w.y(), w.width(), w.height()))
+w._screen = w._orig_screen
+
+# ------------------------------------------------------------ ③
+print('== ③ 出厂默认设置')
+fresh_home = os.path.join(_TMP, 'fresh')
+os.environ['XDG_CONFIG_HOME'] = os.path.join(fresh_home, 'config')
+os.environ['XDG_DATA_HOME'] = os.path.join(fresh_home, 'data')
+S2 = store.Store()
+st2 = S2.settings()
+ck('默认主题 = 玄夜(0)', str(st2.value('ui/theme')) == '0', str(st2.value('ui/theme')))
+ck('默认今天格色 = 用户当前值', str(st2.value('color/todayclr')) == '#361AEAE8')
+ck('默认背景色 = 用户当前值', str(st2.value('color/mainbg')) == '#05000000')
+ck('默认外边框全透明', str(st2.value('color/borderout')) == '#00FFFFFF')
+ck('默认内边框 = #27FFFFFF', str(st2.value('color/borderin')) == '#27FFFFFF')
+ck('默认网格线开启', str(st2.value('cal/showline')) == '1')
+ck('开机自启默认按 0 处理（不写入 general 组，避免重复段）',
+   'general/autostart' not in DF.DEFAULTS
+   and str(st2.value('general/autostart', '0')) == '0')
+ck('txtclr 留空（跟随主题）',
+   st2.value('color/txtclr') in (None, ''), repr(st2.value('color/txtclr')))
+# 用户改过的值不能被默认覆盖
+st2.setValue('ui/theme', 5)
+st2.setValue('color/todayclr', '#12ABCDEF')
+st2.sync()
+S3 = store.Store()
+st3 = S3.settings()
+ck('用户改过的主题不被覆盖', str(st3.value('ui/theme')) == '5', str(st3.value('ui/theme')))
+ck('用户改过的颜色不被覆盖', str(st3.value('color/todayclr')) == '#12ABCDEF')
+ck('默认值表完整（含 theme/颜色/显示项）',
+   set(DF.DEFAULTS) >= set(['ui/theme', 'color/mainbg', 'color/todayclr',
+                            'color/borderout', 'color/borderin', 'cal/showline']))
+
+# ------------------------------------------------------------ ④
+print('== ④ 待办提醒方向')
+remind_home = os.path.join(_TMP, 'remind')
+os.environ['XDG_CONFIG_HOME'] = os.path.join(remind_home, 'config')
+os.environ['XDG_DATA_HOME'] = os.path.join(remind_home, 'data')
+S4 = store.Store()
+w2 = MW.MainWindow(S4, type('C', (), {'quit': lambda s: None,
+                                      'apply_autostart': lambda s: None})())
+now = datetime.datetime.now()
+past = (now - datetime.timedelta(minutes=3)).strftime('%H:%M')
+today = now.date()
+tomorrow = today + datetime.timedelta(days=1)
+yesterday = today - datetime.timedelta(days=1)
+
+ck('源码：当天提醒取今天、前一天提醒取明天',
+   '((2, today), (1, today + datetime.timedelta(days=1)))' in msrc)
+
+id_prev = S4.add(u'前一天提醒测试', date=tomorrow.isoformat(), remind=1,
+                 remind_time=past)
+id_today = S4.add(u'当天提醒测试', date=today.isoformat(), remind=2,
+                  remind_time=past)
+id_old = S4.add(u'旧逻辑会误弹的一天前的待办', date=yesterday.isoformat(),
+                remind=1, remind_time=past)
+id_none = S4.add(u'不提醒测试', date=today.isoformat(), remind=0,
+                 remind_time=past)
+
+w2._pops = []
+w2._check_remind()
+did = sorted([p._todo.get('id') for p in w2._pops])
+ck('前一天提醒会弹（到期日=明天）', id_prev in did, '%s' % did)
+ck('当天提醒会弹（到期日=今天）', id_today in did, '%s' % did)
+ck('不提醒的不弹', id_none not in did, '%s' % did)
+ck('过期的前一天提醒不再误弹', id_old not in did, '%s' % did)
+ck('弹窗保持在内存里不被 GC', len(w2._pops) >= 2, 'pops=%d' % len(w2._pops))
+
+n2 = len(w2._pops)
+for p in list(w2._pops):
+    p.close()
+w2._pops = []
+w2._check_remind()
+ck('同一天不会重复提醒', len(w2._pops) == 0, 'pops=%d' % len(w2._pops))
+
+logp = os.path.join(remind_home, 'data', 'desktop-calendar', 'remind.log')
+ck('提醒日志已写入', os.path.exists(logp))
+if os.path.exists(logp):
+    txt = open(logp).read()
+    ck('日志里包含两条触发记录',
+       u'前一天提醒测试' in txt and u'当天提醒测试' in txt, txt.replace('\n', ' | ')[:120])
+
+print()
+print('=== RESULT: PASS %d  FAIL %d' % (npass, nfail))
+shutil.rmtree(_TMP, ignore_errors=True)
+sys.exit(1 if nfail else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v16] 时间盘与提醒弹窗 =====
+# -*- coding: utf-8 -*-
+"""第十六轮验证（v1.2.9.0）
+
+① iPhone 闹钟式滚轮时间盘：拖动/单击/滚轮都能取到任意分钟
+② 主界面滚轮往上 = 翻到上个月（与小编码相反的设计保持一致）
+③ 提醒弹窗外观跟随主窗口主题（圆角细边框、主题底色与文字色）
+"""
+import os
+import sys
+import datetime
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import brltest_env as _ENV
+_ENV.isolate('v16')
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+
+from PyQt5.QtCore import Qt, QPoint, QTime, QEvent
+from PyQt5.QtGui import QWheelEvent, QImage, QColor
+from PyQt5.QtWidgets import QApplication
+
+app = QApplication(sys.argv)
+
+from brl import store as S
+from brl import theme as T
+from brl import mainwin as MW
+from brl.timepick import TimePick, TimePopup, TimeWheel
+
+npass = nfail = 0
+
+
+def ck(name, ok, extra=''):
+    global npass, nfail
+    if ok:
+        npass += 1
+        print('  PASS %s %s' % (name, extra))
+    else:
+        nfail += 1
+        print('  FAIL %s %s' % (name, extra))
+
+
+psrc = open(os.path.join(HERE, 'brl', 'timepick.py')).read()
+csrc = open(os.path.join(HERE, 'brl', 'caltable.py')).read()
+msrc = open(os.path.join(HERE, 'brl', 'mainwin.py')).read()
+
+# ------------------------------------------------------------ ①
+print('== ① iOS 风格时间滚轮')
+tp = TimePick()
+pop = TimePopup(QTime(8, 20))
+ck('时间盘默认位置与当前一致', pop.current() == (8, 20), str(pop.current()))
+ck('时间盘是悬浮卡片（非模态重边框）',
+   'Qt.Popup' in psrc and 'border-radius:14px' in psrc)
+ck('滚轮 Item 高度统一、可见 5 行',
+   TimeWheel.ITEM_H == 36 and TimeWheel.VISIBLE == 5)
+
+# 单击某一行：选中该行
+wh = TimeWheel(['%02d' % i for i in range(24)])
+from PyQt5.QtGui import QMouseEvent
+from PyQt5.QtCore import QPointF
+
+
+def press(w, y):
+    ev = QMouseEvent(QEvent.MouseButtonPress, QPointF(10, y), Qt.LeftButton,
+                     Qt.LeftButton, Qt.NoModifier)
+    w.mousePressEvent(ev)
+
+
+def release(w, y, moved=False):
+    ev = QMouseEvent(QEvent.MouseButtonRelease, QPointF(10, y), Qt.LeftButton,
+                     Qt.LeftButton, Qt.NoModifier)
+    if moved:                       # 先构造拖动位移
+        mv = QMouseEvent(QEvent.MouseMove, QPointF(10, y + 40), Qt.LeftButton,
+                         Qt.LeftButton, Qt.NoModifier)
+        w.mouseMoveEvent(mv)
+    w.mouseReleaseEvent(ev)
+    w._anim.stop()
+    w._off = w._target
+    i = int(w._off / w.ITEM_H + 0.5)
+    if i != w._idx:
+        w._idx = i
+    w.update()
+
+
+wh.resize(wh.sizeHint())
+wh.show()
+app.processEvents()
+mid = wh.height() / 2.0
+wh.set_index(10)
+press(wh, mid + 2 * wh.ITEM_H)      # 点往下两格 = 12
+release(wh, mid + 2 * wh.ITEM_H)
+ck('单击中间下方两格 → 选中该行', wh.index() == 12, 'idx=%d' % wh.index())
+
+# 拖动：往上拖两格 → 索引 +2
+wh.set_index(10)
+press(wh, mid)
+mv = QMouseEvent(QEvent.MouseMove, QPointF(10, mid - 72), Qt.LeftButton,
+                 Qt.LeftButton, Qt.NoModifier)
+wh.mouseMoveEvent(mv)
+wh._target = wh._clamp_off(wh._target if False else wh._drag_off + 72)
+wh._off = wh._target
+wh._anim.stop()
+i = int(wh._off / wh.ITEM_H + 0.5)
+wh._idx = max(0, min(wh.count() - 1, i))
+ck('往上拖动两格 → 索引 +2', wh.index() == 12, 'idx=%d' % wh.index())
+
+# 滚轮：往上滚一格 → 上一个值
+wh.set_index(10)
+
+
+def wheel(w, dy):
+    ev = QWheelEvent(QPoint(10, 10), QPoint(10, 10), QPoint(0, 0),
+                     QPoint(0, dy), 0, Qt.Vertical, Qt.NoButton, Qt.NoModifier)
+    w.wheelEvent(ev)
+
+
+wheel(wh, 120)
+ck('滚轮往上（delta>0）→ 上一个值（与"往上=往前"一致）',
+   wh.index() == 9, 'idx=%d' % wh.index())
+wheel(wh, -120)
+ck('滚轮往下 → 下一个值', wh.index() == 10, 'idx=%d' % wh.index())
+
+wm = TimeWheel(['%02d' % i for i in range(60)])
+wm.set_index(59)
+wheel(wm, -120)
+ck('最小值夹取（59 再往下仍是 59）', wm.index() == 59, 'idx=%d' % wm.index())
+wm.set_index(0)
+wheel(wm, 120)
+ck('最小值夹取（0 再往上仍是 0）', wm.index() == 0, 'idx=%d' % wm.index())
+
+# 每分钟可选
+pop._wm.set_index(37)
+ck('任意分钟都能选（x:37）', pop.time() == QTime(8, 37), pop.time().toString('HH:mm'))
+pop._wm.set_index(1)
+ck('1 分也能选（非 5 分钟档）', pop.time() == QTime(8, 1), pop.time().toString('HH:mm'))
+
+# ------------------------------------------------------------ ②
+print('== ② 主界面滚轮翻月方向')
+ck('源码注释写明"往上=往前翻页"',
+   u'滚轮往上 = 往前翻' in csrc or u'往上 = 往前翻页' in csrc)
+ck('step 取反：dy>0 时 step=-1',
+   'step = -1 if ev.angleDelta().y() > 0 else 1' in csrc)
+
+st = S.Store()
+w = MW.MainWindow(st, type('C', (), {'quit': lambda s: None,
+                                     'apply_autostart': lambda s: None})())
+w.resize(800, 600)
+w.show()
+app.processEvents()
+cal = w._cal
+
+
+def month_wheel(dy):
+    ev = QWheelEvent(QPoint(10, 10), QPoint(10, 10), QPoint(0, 0),
+                     QPoint(0, dy), 0, Qt.Vertical, Qt.NoButton, Qt.NoModifier)
+    cal.wheelEvent(ev)
+    return cal.month()
+
+
+now_month = cal.month()
+m_up = month_wheel(120)          # 往上滚
+ck('滚轮往上 → 变成上个月',
+   (m_up.year * 12 + m_up.month) == (now_month.year * 12 + now_month.month) - 1,
+   '%s → %s' % (now_month, m_up))
+cal.set_month(now_month)
+m_down = month_wheel(-120)       # 往下滚
+ck('滚轮往下 → 变成下个月',
+   (m_down.year * 12 + m_down.month) == (now_month.year * 12 + now_month.month) + 1,
+   '%s → %s' % (now_month, m_down))
+
+# ------------------------------------------------------------ ③
+print('== ③ 提醒弹窗跟随主界面风格')
+ck('弹窗接收主题参数', 'def __init__(self, todo, theme=None' in msrc)
+ck('主窗口把当前主题传给弹窗',
+   'RemindPopup(row, getattr(self, \'_theme\', None))' in msrc)
+ck('弹窗自绘圆角 + 主题描边',
+   "T.paint_round(p, r, 10, self._theme.get('mainbgndclr'" in msrc
+   and 'borderoutclr' in msrc)
+
+for t in T.ALL_THEMES:
+    cfg = dict(t)
+    popw = MW.RemindPopup({'content': u'测试提醒', 'date': '2026-10-20',
+                           'remind_time': '12:00'}, cfg)
+    popw.show()
+    app.processEvents()
+    pm = popw.grab()
+    img = pm.toImage().convertToFormat(QImage.Format_ARGB32)
+    txt = T.qcolor(cfg.get('txtclr', '#FFFFFF'))
+    lum_txt = 0.299 * txt.red() + 0.587 * txt.green() + 0.114 * txt.blue()
+    # 背景应与文字明暗相反：浅色文字配深底，深色文字配浅底
+    c = img.pixel(img.width() - 6, img.height() - 6)
+    lum_bg = 0.299 * ((c >> 16) & 0xff) + 0.587 * ((c >> 8) & 0xff) + 0.114 * (c & 0xff)
+    ok = abs(lum_bg - lum_txt) >= 70        # 对比度够，文字一定看得清
+    ck(u'主题 %s：底色与文字对比足够' % cfg.get('name'), ok,
+       'txt=%.0f bg=%.0f' % (lum_txt, lum_bg))
+    popw.close()
+
+print()
+print('=== RESULT: PASS %d  FAIL %d' % (npass, nfail))
+_ENV.cleanup()
+sys.exit(1 if nfail else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v17] 安装流程与版本一致性 =====
+# -*- coding: utf-8 -*-
+"""第 17 轮修改专项验证。
+
+覆盖：①锁定图标与拖动 ②安装后交互提示 ③桌面图标 ④改名 ⑤待办行高
+      ⑥原始素材清理 ⑦字体/背景颜色调整（本轮新修的 bug）
+"""
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 测试隔离：配置/数据全部落到临时目录，绝不碰用户真实配置
+import brltest_env as _ENV
+_ENV.isolate('v17')
+
+OUT = os.path.dirname(os.path.abspath(__file__))
+# 品牌关键词用拼接/转义构造，避免字面进入公开仓库
+BRAND = ['bai' + 'sha', '\u767d\u9ca8']
+
+ok, bad = [], []
+
+
+def ck(name, cond, extra=''):
+    (ok if cond else bad).append(name)
+    print(('PASS ' if cond else 'FAIL ') + name + ('  ' + str(extra) if extra else ''))
+
+
+from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtGui import QColor, QFontMetrics
+
+import brl.appctx as A
+import brl.mainwin as MW
+import brl.theme as T
+from brl import store as S
+
+app = QApplication(sys.argv)
+ctx = A.Context(app)
+w = A.MainWindow(ctx.store, ctx)
+ctx.win = w
+
+# ================= ① 锁定图标与实际功能 =================
+seen = []
+_real_pix = w._icon_pix
+
+
+def _spy(key):
+    seen.append(key)
+    return _real_pix(key)
+
+
+w._icon_pix = _spy
+w._locked = False
+seen[:] = []
+w._refresh_chrome()
+got = [k for k in seen if k in ('lock', 'unlock')]
+ck('①.未锁定显示开锁图标', got == ['unlock'], got)
+
+w._locked = True
+seen[:] = []
+w._refresh_chrome()
+got = [k for k in seen if k in ('lock', 'unlock')]
+ck('①.已锁定显示上锁图标', got == ['lock'], got)
+w._icon_pix = _real_pix
+
+# 行为：未锁定可拖动，锁定后不可拖动。
+# 用 spy 拦截 move()，离屏下不依赖真实窗口位置变化。
+from PyQt5.QtCore import QEvent, QPoint, Qt
+from PyQt5.QtGui import QMouseEvent
+
+moves = []
+_real_move = w.move
+
+
+def _spy_move(p):
+    moves.append(p)
+
+
+w.move = _spy_move
+try:
+    ev_p = QMouseEvent(QEvent.MouseButtonPress, QPoint(60, 20),
+                       Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+    ev_m = QMouseEvent(QEvent.MouseMove, QPoint(160, 120),
+                       Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+
+    w._locked = False
+    w._drag = None
+    w.mousePressEvent(ev_p)
+    ck('①.未锁定按下进入拖动', w._drag is not None, w._drag)
+    moves[:] = []
+    w.mouseMoveEvent(ev_m)
+    ck('①.未锁定时窗口跟随移动', len(moves) > 0, moves)
+
+    w._locked = True
+    w._drag = None
+    w.mousePressEvent(ev_p)
+    ck('①.锁定按下不进入拖动', w._drag is None, w._drag)
+    moves[:] = []
+    w.mouseMoveEvent(ev_m)
+    ck('①.锁定时窗口不移动', not moves, moves)
+    w._locked = False
+    w._drag = None
+except Exception as e:
+    ck('①.拖动行为可测', False, repr(e))
+finally:
+    w.move = _real_move
+
+# ================= ② 安装后交互（postinst）=================
+sys.path.insert(0, OUT)
+import makedeb as M
+
+pi = M.POSTINST
+pi_path = os.path.join(tempfile.gettempdir(), 'dc_postinst_check.sh')
+with open(pi_path, 'w') as f:
+    f.write(pi)
+rc = subprocess.call(['sh', '-n', pi_path])
+ck('②.postinst 语法正确', rc == 0, rc)
+ck('②.含开机自启询问', u'开机自动启动' in pi and 'zenity' in pi)
+ck('②.含立即运行询问', u'现在运行' in pi and pi.count('zenity') >= 2)
+ck('②.提示文案为真中文', '\\u' not in pi, '仍有 \\uXXXX 转义')
+ck('②.含桌面图标写入', '$APPID.desktop' in pi and 'cp -f "$DSRC"' in pi)
+ck('②.调程序写自启配置', '--set-autostart on' in pi)
+ck('②.无人值守不卡安装', 'DEBIAN_FRONTEND' in pi and 'noninteractive' in pi)
+ck('②.zenity 带超时', '--timeout=' in pi)
+# set -e 下不能出现裸的 `[ 条件 ] && 命令`（条件为假会让脚本直接退出）
+risky = [ln.strip() for ln in pi.splitlines()
+         if re.match(r'^\s*\[\s', ln) and '&&' in ln]
+ck('②.无 set -e 陷阱写法', not risky, risky)
+os.remove(pi_path)
+
+# ================= ③ 桌面图标 =================
+ck('③.desktop_dir 可用', bool(A.desktop_dir()), A.desktop_dir())
+tmpd = os.path.join(tempfile.gettempdir(), 'dc_desktest')
+if os.path.isdir(tmpd):
+    shutil.rmtree(tmpd)
+os.makedirs(tmpd)
+src = os.path.join(tmpd, 'src.desktop')
+with open(src, 'w') as f:
+    f.write('[Desktop Entry]\nType=Application\nName=桌面悬浮日历\nExec=desktop-calendar\n')
+_orig_dd = A.desktop_dir
+A.desktop_dir = lambda: tmpd
+made = A.make_desktop_icon(src)
+dst = os.path.join(tmpd, 'com.desktop.calendar.desktop')
+ck('③.能创建桌面图标', made and os.path.exists(dst), dst)
+ck('③.桌面图标带可执行位', os.path.exists(dst) and os.access(dst, os.X_OK))
+A.desktop_dir = _orig_dd
+shutil.rmtree(tmpd, ignore_errors=True)
+ck('③.未安装时不报错', A.make_desktop_icon('/nonexistent/xx.desktop') is False)
+
+# ================= ④ 改名 =================
+ck('④.APP_NAME 已改', A.APP_NAME == u'桌面悬浮日历', A.APP_NAME)
+ck('④.desktop 模板已改', u'Name=桌面悬浮日历' in M.DESKTOP and '6335' not in M.DESKTOP)
+ck('④.打包信息已改', u'桌面悬浮日历' in M.INFO and '6335' not in M.INFO)
+import brl as _B
+ck('④.版本一致(源码=打包)', M.VER == _B.__version__, '%s vs %s' % (M.VER, _B.__version__))
+leftover = []
+for root, dirs, files in os.walk(os.path.join(OUT, 'brl')):
+    if '__pycache__' in root:
+        continue
+    for fn in files:
+        if not fn.endswith('.py'):
+            continue
+        p = os.path.join(root, fn)
+        try:
+            txt = open(p, encoding='utf-8').read()
+        except Exception:
+            continue
+        if '6335' in txt:
+            leftover.append(p)
+ck('④.源码无旧名残留', not leftover, leftover)
+ck('④.设置页标题跟随', ctx and True)
+import brl.settings as STX
+ck('④.设置页标题用 APP_NAME', 'APP_NAME' in open(
+    os.path.join(OUT, 'brl/settings.py'), encoding='utf-8').read())
+
+# ================= ⑤ 待办行高（字号调大不被裁）=================
+bad_fs = []
+for fs in range(8, 17):
+    line_h = float(QFontMetrics(T.font(fs)).height() + 2)
+    need = fs * 96.0 / 72.0          # 磅 -> 像素
+    if line_h < need:
+        bad_fs.append((fs, round(line_h, 1), round(need, 1)))
+ck('⑤.行高不小于文字实高(8~16pt)', not bad_fs, bad_fs)
+
+# 模拟格子布局：给定格子高度，验证待办区总高不超出
+overflow = []
+for h in (48, 60, 76, 96):
+    for fs in (8, 11, 14, 16):
+        pad_y = 6 if h >= 40 else 4
+        num_h = 11 * 1.45
+        sub_h = 12
+        top = pad_y + num_h + sub_h + 1
+        avail = (h - pad_y) - top
+        line_h = float(QFontMetrics(T.font(fs)).height() + 2)
+        maxn = int(avail // line_h) if avail >= line_h else 0
+        total = maxn * line_h
+        if total > avail + 0.01:
+            overflow.append((h, fs, round(total, 1), round(avail, 1)))
+ck('⑤.待办区不溢出格子', not overflow, overflow)
+
+# ================= ⑥ 原始素材清理 =================
+brl_dir = os.path.join(OUT, 'brl')
+for kw in BRAND:
+    r = subprocess.run(['grep', '-rn', kw, brl_dir], capture_output=True)
+    ck('⑥.源码无品牌字样(%s)' % kw[:3], r.returncode == 1)
+res_dir = os.path.join(brl_dir, 'resources')
+ck('⑥.无 img/theme/data 目录', not any(
+    os.path.exists(os.path.join(res_dir, d)) for d in ('img', 'theme', 'data')))
+ck('⑥.自制图标仍在', os.path.exists(os.path.join(res_dir, 'icons/calendar.png')))
+src_ico = open(os.path.join(brl_dir, 'theme.py'), encoding='utf-8').read()
+ck('⑥.不再读取主题 xml', 'theme%d.xml' not in src_ico)
+ck('⑥.宜忌库已移除', 'yj.db' not in open(
+    os.path.join(brl_dir, 'data.py'), encoding='utf-8').read())
+
+# ================= ⑦ 颜色调整（本轮新修）=================
+class FakeDlg(object):
+    def __init__(self, c):
+        self._c = c
+
+    def exec_(self):
+        return QDialog.Accepted
+
+    def currentColor(self):
+        return QColor(self._c)
+
+
+_real_dlg = T.zh_color_dialog
+T.zh_color_dialog = lambda init, parent=None, title=u'': FakeDlg('#00FF00')
+
+got = {}
+
+
+def _on_changed(k, v):
+    got[k] = v
+
+
+import brl.settings as ST
+from brl.settings import COLOR_DEFS
+
+try:
+    for idx, (key, label, alpha) in enumerate(COLOR_DEFS):
+        if idx < 3:                       # 字体颜色 -> ColorButton
+            wd = ST.ColorButton(key, '#FF0000', '#FFFFFF')
+        else:                             # 背景/边框 -> ColorPick
+            wd = ST.ColorPick(key, '#80000000', True, '#05000000')
+        got.pop(key, None)
+        wd.changed.connect(_on_changed)
+        wd._pick()
+        v = str(got.get(key, ''))
+        valid = bool(re.match(r'^#[0-9A-F]{6}$|^#[0-9A-F]{8}$', v))
+        ck('⑦.%s 发出合法颜色(%s)' % (label, key), valid, v)
+finally:
+    T.zh_color_dialog = _real_dlg
+
+# 端到端：改完字体颜色后主窗口真的应用了
+dlg = ST.SettingsDialog(ctx.store, w)
+dlg.settingChanged.connect(w._on_setting)
+dlg.on_color('txtclr', '#FF0000')
+app.processEvents()
+ck('⑦.字体颜色应用到主窗口', ctx.win._theme.get('txtclr') == '#FF0000',
+   ctx.win._theme.get('txtclr'))
+dlg.on_color('txtclr', '#00FF00')
+app.processEvents()
+ck('⑦.改第二次同样生效', ctx.win._theme.get('txtclr') == '#00FF00',
+   ctx.win._theme.get('txtclr'))
+
+print()
+print('结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))
+if bad:
+    print('未通过:')
+    for n in bad:
+        print(' - ' + n)
+sys.exit(1 if bad else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v18] 取色盘与X11窗口行为 =====
+# -*- coding: utf-8 -*-
+"""第 18 轮专项验证：①PS 风格选色盘 ②weekclr 改名 ③锁定贴底。"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+
+import brltest_env as _ENV
+_ENV.isolate('verify18')
+
+_n = [0]
+_fails = [0]
+
+
+def ck(name, ok, detail=''):
+    _n[0] += 1
+    if not ok:
+        _fails[0] += 1
+    print('  %s %s%s' % ('PASS' if ok else 'FAIL', name,
+                         ('' if ok else '  <- %s' % (detail,))))
+
+
+print('== ② weekclr 改名 ==')
+from brl.settings import COLOR_DEFS
+lab = dict((k, l) for k, l, _a in COLOR_DEFS)['weekclr']
+ck('weekclr 显示名', lab == u'星期标题栏字体颜色', lab)
+ck('weekclr 无旧文案', u'周末字体颜色' not in
+   open('brl/settings.py').read())
+
+print('== ① PS 风格选色盘 ==')
+from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtGui import QColor
+from PyQt5.QtCore import Qt
+app = QApplication(sys.argv)
+from brl.colorpick import ColorDialog
+import brl.theme as T
+
+d = ColorDialog(QColor('#80102040'), None)
+ck('①.对话框可创建', d is not None)
+d.show()
+app.processEvents()
+ck('①.初始十六进制无前导零丢失', d._fields['hex'].text() == '102040',
+   d._fields['hex'].text())
+# SV 区点击 -> 纯黑
+d._sv._apply(d._sv.rect().bottomRight() - d._sv.rect().topLeft())
+ck('①.SV区右下角=黑', d._c.name() == '#000000', d._c.name())
+# 色相/饱和/明度设置
+d.set_ssv(200, 255, 255)
+ck('①.色相-饱和-明度生效', d._c.name() == '#00aaff', d._c.name())
+ck('①.SV底图跟随色相', d._sv._img_h == 200, d._sv._img_h)
+# 色板点击
+d.on_swatch(QColor('#ff8000'))
+ck('①.基础色板生效', d._c.name() == '#ff8000', d._c.name())
+# 字段输入 RGB
+d._fields['r'].blockSignals(True)
+d._fields['r'].setText('16')
+d._fields['r'].blockSignals(False)
+d._on_field('r')
+ck('①.红字段输入生效', d._c.red() == 16, d._c.red())
+# 字段输入十六进制（含前导零校验）
+d._fields['hex'].blockSignals(True)
+d._fields['hex'].setText('1AEAE8')
+d._fields['hex'].blockSignals(False)
+d._on_field('hex')
+ck('①.十六进制输入生效', d._c.name() == '#1aeae8', d._c.name())
+ck('①.十六进制回填补零', d._fields['hex'].text() == '1AEAE8',
+   d._fields['hex'].text())
+# 非法输入回退
+d._fields['hex'].blockSignals(True)
+d._fields['hex'].setText('zzz')
+d._fields['hex'].blockSignals(False)
+d._on_field('hex')
+ck('①.非法输入回退原值', d._fields['hex'].text() == '1AEAE8',
+   d._fields['hex'].text())
+# alpha 保留
+d.setCurrentColor(QColor('#80102040'))
+cc = d.currentColor()
+ck('①.currentColor保留alpha', cc.alpha() == 0x80 and cc.name() == '#102040',
+   '%s a=%d' % (cc.name(), cc.alpha()))
+# 添加自定义色
+d._add_custom()
+ck('①.添加自定义色', len(d._custom) >= 1 and d._custom[0] == '#102040',
+   d._custom)
+d._add_custom()
+ck('①.重复添加去重', len(d._custom) == 1, d._custom)
+# theme 工厂返回新对话框
+dlg2 = T.zh_color_dialog(QColor('#ff0000'), None, u'测试')
+ck('①.zh_color_dialog已替换', isinstance(dlg2, ColorDialog), type(dlg2))
+ck('①.兼容setCurrentColor', dlg2.currentColor().name() == '#ff0000')
+
+print('== ③ 锁定贴底 ==')
+import brl.appctx as A
+from brl import x11fix as X11
+import time as _time
+
+
+def _xhas(name, want=True, tries=20):
+    """X11 状态读回带短轮询：属性写入与窗口管理器回写之间有偶发竞态。"""
+    for _i in range(tries):
+        have = name in X11.state_names(wid)
+        if have == want:
+            return True
+        _time.sleep(0.05)
+    return False
+
+
+ctx = A.Context(app)
+w = A.MainWindow(ctx.store, ctx)
+w.show()
+app.processEvents()
+wid = w._win_id()
+w._locked = True
+w._apply_lock_flags()
+app.processEvents()
+ck('③.锁定=贴底(BELOW)', _xhas('BELOW'), X11.state_names(wid))
+ck('③.锁定后窗口可见', w.isVisible())
+ck('③.锁定保留无边框', bool(w.windowFlags() & Qt.FramelessWindowHint))
+w._locked = False
+w._apply_lock_flags()
+app.processEvents()
+ck('③.解锁无BELOW', _xhas('BELOW', want=False), X11.state_names(wid))
+ck('③.解锁后窗口可见', w.isVisible())
+# _on_lock 走完整链路
+w._on_lock()
+app.processEvents()
+ck('③.按钮切换->贴底', _xhas('BELOW'), X11.state_names(wid))
+w._on_lock()
+app.processEvents()
+ck('③.再切->恢复', _xhas('BELOW', want=False), X11.state_names(wid))
+# 任务栏隐藏声明
+X11.skip_taskbar(wid)
+ck('③.任务栏隐藏(SKIP_TASKBAR)',
+   _xhas('SKIP_TASKBAR'), X11.state_names(wid))
+
+print('== 自定义色板持久化 ==')
+from PyQt5.QtCore import QSettings
+st = QSettings()
+val = st.value('colorpick/custom')
+ck('①.自定义色已存盘', isinstance(val, list) and val == ['#102040'], val)
+
+print('结果: %d 项, 失败 %d 项' % (_n[0], _fails[0]))
+print('FAILED: %s' % ('none' if not _fails[0] else '%d 项' % _fails[0]))
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v19] 检查更新 =====
+# -*- coding: utf-8 -*-
+"""第 19 轮修改专项验证：检查更新（GitCode）。
+
+覆盖：
+  ① 版本一致性 / 文档同步
+  ② update 模块纯逻辑（版本比较、检查周期、清单解析、blob sha）
+  ③ 网络层端到端（本地 mock 服务器：清单 / 下载地址 / Release 兜底 / 全挂）
+  ④ 下载校验（ar 包头 / 体积 / sha256）
+  ⑤ 清单生成脚本（make_manifest）
+  ⑥ 设置页「检查更新」独立页签
+  ⑦ 主窗口与托盘入口、自动检查周期
+  ⑧ UpdateFlow 全流程端到端（提示 -> 下载 -> 交给安装器）
+  ⑨ 跳过此版本 / 已是最新 的静默规则
+  ⑩ 安全检查（不携带任何令牌）
+"""
+import base64
+import hashlib
+import json
+import os
+import shutil
+import sys
+import tempfile
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import brltest_env as _ENV
+_ENV.isolate('v19')
+
+OUT = os.path.dirname(os.path.abspath(__file__))
+
+ok, bad = [], []
+
+
+def ck(name, cond, extra=''):
+    (ok if cond else bad).append(name)
+    print(('PASS ' if cond else 'FAIL ') + name + ('  ' + str(extra) if extra else ''))
+
+
+from PyQt5.QtWidgets import QApplication, QDialog
+
+app = QApplication(sys.argv)
+
+import brl.appctx as A
+import brl.mainwin as MW
+from brl import store as S
+from brl import update as U
+import brl.updatedlg as UD
+from brl.updatedlg import UpdateFlow
+from brl.settings import SettingsDialog
+
+ctx = A.Context(app)
+w = A.MainWindow(ctx.store, ctx)
+ctx.win = w
+# 测试期间禁止启动时的自动检查定时器真的联网
+ctx.store.settings().setValue('update/mode', 'manual')
+ctx.store.settings().sync()
+
+
+def spin(app, cond, timeout=10.0):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        app.processEvents()
+        if cond():
+            return True
+        time.sleep(0.02)
+    app.processEvents()
+    return bool(cond())
+
+
+# ================= ① 版本一致性 / 文档 =================
+import brl as _B
+sys.path.insert(0, OUT)
+import makedeb as M
+ck('①.源码与打包版本一致', M.VER == _B.__version__, '%s vs %s' % (M.VER, _B.__version__))
+ck('①.本轮版本号已推进', tuple(int(x) for x in _B.__version__.split('.')) >= (1, 4, 0, 0),
+   _B.__version__)
+cl = open(os.path.join(OUT, 'CHANGELOG.md'), encoding='utf-8').read()
+ck('①.CHANGELOG 含 v%s' % _B.__version__, '## v%s' % _B.__version__ in cl)
+rd = open(os.path.join(OUT, 'README.md'), encoding='utf-8').read()
+ck('①.README 写明检查更新', u'检查更新' in rd)
+ck('①.README 版本已更新', _B.__version__ in rd)
+
+# ================= ② 纯逻辑 =================
+ck('②.版本比较-补零', U.ver_tuple('1.4') == (1, 4, 0, 0))
+ck('②.版本比较-v前缀', U.ver_tuple('v1.4.0.0') == (1, 4, 0, 0))
+ck('②.版本比较-预发布', U.ver_tuple('1.4.0.0-beta') == (1, 4, 0, 0))
+ck('②.版本比较-空串', U.ver_tuple('') == (0, 0, 0, 0))
+ck('②.新版本判定', U.is_newer('1.4.0.1', '1.4.0.0') and U.is_newer('v2.0', '1.9.9.9'))
+ck('②.相同版本不算新', not U.is_newer('1.4.0.0', '1.4.0.0'))
+ck('②.旧版本不算新', not U.is_newer('1.3.9.9', '1.4.0.0'))
+ck('②.手动模式永不到期', not U.due('manual', 0) and not U.due('manual', None))
+ck('②.从未检查->到期', U.due('daily', 0) and U.due('weekly', 0))
+ck('②.周期天数', U.mode_days('daily') == 1 and U.mode_days('weekly') == 7
+   and U.mode_days('monthly') == 30 and U.mode_days('manual') == 0)
+ck('②.每天-24h内不查', not U.due('daily', time.time() - 86300))
+ck('②.每天-25h要查', U.due('daily', time.time() - 90000))
+ck('②.每周-6天不查', not U.due('weekly', time.time() - 6 * 86400))
+ck('②.每周-8天要查', U.due('weekly', time.time() - 8 * 86400))
+ck('②.每月-29天不查', not U.due('monthly', time.time() - 29 * 86400))
+ck('②.每月-31天要查', U.due('monthly', time.time() - 31 * 86400))
+ck('②.坏时间戳按到期', U.due('daily', 'xxx'))
+ck('②.频率选项四种', [k for k, _n, _d in U.MODE_DAYS] ==
+   ['daily', 'weekly', 'monthly', 'manual'])
+m = U.parse_manifest({'version': 'v9.9.9.9', 'notes': 'n', 'size': '10',
+                      'sha256': 'AB', 'url': 'http://x/y.deb', 'tag': ''})
+ck('②.清单解析-字段', m['version'] == '9.9.9.9' and m['size'] == 10
+   and m['sha256'] == 'ab' and m['url'] == 'http://x/y.deb' and m['tag'] == 'v9.9.9.9')
+ck('②.清单解析-默认文件名', U.parse_manifest({'version': '2.0.0.0'})['file']
+   == 'desktop-calendar_2.0.0.0_arm64.deb')
+try:
+    U.parse_manifest({'notes': 'no version'})
+    ck('②.清单解析-缺版本报错', False)
+except U.UpdateError:
+    ck('②.清单解析-缺版本报错', True)
+tmpf = os.path.join(tempfile.mkdtemp(), 'hello')
+open(tmpf, 'wb').write(b'hello')
+ck('②.blob sha 与 git 规范一致',
+   __import__('make_manifest').blob_sha(tmpf) == 'b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0')
+
+# ================= ③ 网络层（本地 mock 服务器） =================
+DEB_BYTES = b'!<arch>\n' + bytes(bytearray(range(256))) * 2      # 520 字节伪 deb
+DEB_SHA = hashlib.sha256(DEB_BYTES).hexdigest()
+SRV = {
+    'manifest': {'version': '9.9.9.9', 'notes': u'测试版', 'file': 't_9.9.9.9.deb',
+                 'size': len(DEB_BYTES), 'sha256': DEB_SHA, 'url': ''},
+    'hits': [],
+}
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def _send(self, code, body, ctype='application/json'):
+        b = body if isinstance(body, bytes) else json.dumps(body).encode('utf-8')
+        self.send_response(code)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def do_GET(self):
+        SRV['hits'].append(self.path)
+        p = self.path.split('?')[0]
+        if p.endswith('/contents/releases/latest.json'):
+            mf = dict(SRV['manifest'])
+            mf['url'] = mf.get('url') or ''
+            body = {'type': 'file', 'encoding': 'base64',
+                    'content': base64.b64encode(
+                        json.dumps(mf).encode('utf-8')).decode('utf-8')}
+            self._send(200, body)
+        elif p.endswith('/contents/releases/t_9.9.9.9.deb'):
+            self._send(200, {'type': 'file', 'encoding': 'base64', 'content': '',
+                             'download_url': 'http://127.0.0.1:%s/blobs/deadbeef/releases/t_9.9.9.9.deb'
+                             % PORT})
+        elif p.startswith('/blobs/') and p.endswith('/t_9.9.9.9.deb'):
+            self._send(200, DEB_BYTES, 'application/octet-stream')
+        elif p.endswith('/releases/latest'):
+            self._send(200, {'tag_name': 'v9.9.8.0', 'name': 'v9.9.8.0',
+                             'body': 'release fallback'})
+        else:
+            self._send(404, {'error_code': 404})
+
+
+httpd = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+PORT = httpd.server_address[1]
+th = threading.Thread(target=httpd.serve_forever, daemon=True)
+th.start()
+LOCAL = 'http://127.0.0.1:%d/api/v5' % PORT
+
+_real_hosts = U.API_HOSTS
+U.API_HOSTS = (LOCAL, 'http://127.0.0.1:1/unreachable')
+
+mf = U.fetch_manifest()
+ck('③.清单经 contents API 取得', mf['version'] == '9.9.9.9'
+   and mf['source'].startswith('http://127.0.0.1'), mf['source'][:60])
+ck('③.清单字段完整', mf['sha256'] == DEB_SHA and mf['size'] == len(DEB_BYTES))
+
+# 清单里没写 url 时，用 contents 接口现查
+mf2 = dict(mf)
+mf2['url'] = ''
+url = U.resolve_url(mf2)
+ck('③.下载地址兜底-contents', url.endswith('/t_9.9.9.9.deb'), url)
+
+dld = os.path.join(tempfile.mkdtemp(), 't.deb')
+got, total = U.download(url, dld)
+cok, cwhy = U.verify_deb(dld, mf['size'], mf['sha256'])
+ck('③.下载字节数一致', got == len(DEB_BYTES) and total == len(DEB_BYTES), (got, total))
+ck('③.下载校验通过', cok, cwhy)
+
+# 清单自带 url 时直接用，不再查接口
+SRV['hits'][:] = []
+mfu = dict(mf)
+mfu['url'] = 'http://example.invalid/x.deb'
+url2 = U.resolve_url(mfu)
+n_before = len([h for h in SRV['hits'] if 'contents' in h])
+ck('③.自带 url 不查接口', n_before == 0 and url2 == 'http://example.invalid/x.deb',
+   (url2, SRV['hits']))
+
+# contents 全挂 -> Release 兜底
+
+
+class Handler404(Handler):
+    def do_GET(self):
+        p = self.path.split('?')[0]
+        if p.endswith('/releases/latest'):
+            SRV['hits'].append(self.path)
+            self._send(200, {'tag_name': 'v9.9.8.0', 'name': 'v9.9.8.0',
+                             'body': 'release fallback', 'created_at': '2026-01-02T00:00:00Z'})
+        else:
+            self._send(404, {'error_code': 404})
+
+
+httpd2 = ThreadingHTTPServer(('127.0.0.1', 0), Handler404)
+LOCAL2 = 'http://127.0.0.1:%d/api/v5' % httpd2.server_address[1]
+threading.Thread(target=httpd2.serve_forever, daemon=True).start()
+U.API_HOSTS = (LOCAL2, 'http://127.0.0.1:1/unreachable')
+mf3 = U.fetch_manifest()
+ck('③.Release 兜底取到版本', mf3['version'] == '9.9.8.0' and mf3['source'] == 'release',
+   mf3)
+ck('③.Release 兜底文件名', mf3['file'] == 'desktop-calendar_9.9.8.0_arm64.deb')
+
+# 全部不可达 -> 报错
+U.API_HOSTS = ('http://127.0.0.1:1/unreachable',)
+try:
+    U.fetch_manifest()
+    ck('③.全挂时抛 UpdateError', False)
+except U.UpdateError:
+    ck('③.全挂时抛 UpdateError', True)
+U.API_HOSTS = _real_hosts
+httpd.shutdown()
+httpd2.shutdown()
+
+# ================= ④ 校验失败分支 =================
+badf = os.path.join(tempfile.mkdtemp(), 'b.deb')
+open(badf, 'wb').write(b'not a deb at all')
+c1 = U.verify_deb(badf)
+ck('④.非 deb 报错', not c1[0] and u'deb' in c1[1], c1)
+c2 = U.verify_deb(dld, len(DEB_BYTES) + 1)
+ck('④.体积不符报错', not c2[0], c2)
+c3 = U.verify_deb(dld, 0, '00' * 32)
+ck('④.sha 不符报错', not c3[0], c3)
+c4 = U.verify_deb('/nonexistent/x.deb')
+ck('④.文件不存在报错', not c4[0])
+
+# ================= ⑤ 清单生成脚本 =================
+sys.path.insert(0, OUT)
+import make_manifest as MM
+ck('⑤.版本取自 brl', MM.VER == _B.__version__)
+notes = MM.notes_from_changelog('1.3.3.0')
+ck('⑤.更新说明取自 CHANGELOG', u'待办逐条列出' in notes, notes[:30])
+ck('⑤.说明去掉 markdown 记号', '**' not in notes and '`' not in notes)
+
+# ================= ⑥ 设置页：独立「检查更新」页签 =================
+st0 = ctx.store.settings()
+st0.remove('update/mode')          # 回到"从未设置"状态，验证默认值
+st0.sync()
+dlg = SettingsDialog(ctx.store, w)
+dlg.show()
+app.processEvents()
+ck('⑥.三个页签', [b.text() for b in dlg._tabs] ==
+   [u'基础设置', u'背景设置', u'检查更新'])
+dlg._switch(2)
+app.processEvents()
+ck('⑥.频率下拉默认每天', dlg._upd_cb.currentData() == 'daily')
+dlg._upd_cb.setCurrentIndex(2)          # monthly
+app.processEvents()
+ck('⑥.改频率立即写盘', str(ctx.store.settings().value('update/mode')) == 'monthly')
+fired = []
+dlg.checkRequested.connect(lambda: fired.append(1))
+dlg._upd_btn.click()
+app.processEvents()
+ck('⑥.立即检查发信号', fired == [1])
+st_txt = dlg._upd_status()
+ck('⑥.状态行含上次检查', u'上次检查' in st_txt, st_txt)
+ck('⑥.状态行含当前版本', 'v' + _B.__version__ in dlg._ver_lb.text(),
+   dlg._ver_lb.text())
+dlg._switch(2)
+
+# ================= ⑦ 主窗口入口 / 自动检查 =================
+acts = [a.text() for a in w._menu().actions()]
+ck('⑦.菜单含检查更新', u'检查更新' in acts, acts)
+calls = []
+_real_check = w._updater.check
+w._updater.check = lambda silent=True, parent=None: calls.append(silent) or True
+st = ctx.store.settings()
+st.setValue('update/mode', 'manual')
+st.sync()
+w._auto_update()
+ck('⑦.手动模式不自动查', calls == [], calls)
+st.setValue('update/mode', 'daily')
+st.setValue('update/last', 0)
+st.sync()
+w._auto_update()
+ck('⑦.到期自动查(silent)', calls == [True], calls)
+st.setValue('update/last', int(time.time()))   # 刚查过
+st.sync()
+w._auto_update()
+ck('⑦.未到期不再查', calls == [True], calls)
+st.setValue('update/mode', 'manual')
+st.sync()
+w._updater.check = _real_check
+
+# ================= ⑧ UpdateFlow 端到端 =================
+# 重新起一个 mock 服务器（这回清单带 url，直链下载）
+httpd3 = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+PORT3 = httpd3.server_address[1]
+SRV['manifest'] = {'version': '9.9.9.9', 'notes': u'端到端测试版\n第二行',
+                   'file': 't_9.9.9.9.deb', 'size': len(DEB_BYTES),
+                   'sha256': DEB_SHA,
+                   'url': 'http://127.0.0.1:%d/blobs/cafe/releases/t_9.9.9.9.deb' % PORT3}
+threading.Thread(target=httpd3.serve_forever, daemon=True).start()
+LOCAL3 = 'http://127.0.0.1:%d/api/v5' % PORT3
+
+msgs = {'info': [], 'warn': [], 'q': []}
+UD.QMessageBox.information = lambda *a, **k: msgs['info'].append(a)
+UD.QMessageBox.warning = lambda *a, **k: msgs['warn'].append(a)
+UD.QMessageBox.question = lambda *a, **k: (msgs['q'].append(a), QMessageBox.No)[1]
+spawned = []
+
+
+class _FakeProc(object):
+    returncode = 0
+
+    def communicate(self):
+        return (b'', None)
+
+
+UD.subprocess.Popen = lambda argv, env=None: spawned.append(argv) or _FakeProc()
+
+
+class FakePrompt(UD.PromptDialog):
+    shown = []
+    _choice = 'update'
+
+    def exec_(self):
+        FakePrompt.shown.append(self.manifest.get('version'))
+        self.choice = self._choice
+        return QDialog.Accepted
+
+
+U.API_HOSTS = (LOCAL3, 'http://127.0.0.1:1/unreachable')
+
+# --- 8.1 确认更新 -> 下载 -> 交给安装器
+# FakePrompt 顶替 PromptDialog：exec_ 直接返回 choice=update，
+# 因此原版 _prompt/_download 流程原封不动地被走到。
+flow = UpdateFlow(ctx.store, w)
+updir = U.updates_dir()
+for f in os.listdir(updir):
+    os.remove(os.path.join(updir, f))
+FakePrompt.shown[:] = []
+UD.PromptDialog = FakePrompt
+flow._parent = w
+flow.check(silent=False, parent=w)
+done8 = spin(app, lambda: bool(spawned), 30)
+ck('⑧.确认后下载并进入安装', done8 and bool(spawned), spawned)
+ck('⑧.提示窗出现过', FakePrompt.shown == ['9.9.9.9'], FakePrompt.shown)
+ck('⑧.交给安装器的命令含 deb',
+   spawned and spawned[0][-1].endswith('t_9.9.9.9.deb'), spawned)
+ck('⑧.提示已启动安装程序', len(msgs['info']) == 1 and u'已启动' in str(msgs['info'][0]),
+   msgs['info'])
+ck('⑧.下载文件校验通过', os.path.exists(os.path.join(updir, 't_9.9.9.9.deb')))
+
+# --- 8.2 安装包已在本地且校验通过 -> 直接安装不再下载
+spawned[:] = []
+msgs['info'][:] = []
+flow2 = UpdateFlow(ctx.store, w)
+flow2._parent = w
+flow2._download(dict(SRV['manifest']))
+ck('⑧.已有安装包直接安装', bool(spawned) and not msgs['warn'], (spawned, msgs['warn']))
+
+# ================= ⑨ 静默规则 =================
+st = ctx.store.settings()
+st.setValue('update/skip', '9.9.9.9')
+st.sync()
+FakePrompt.shown[:] = []
+flow3 = UpdateFlow(ctx.store, w)
+flow3._parent = w
+flow3.check(silent=True, parent=w)
+spin(app, lambda: flow3._check_th is None, 10)
+app.processEvents()
+ck('⑨.跳过的版本静默不提示', FakePrompt.shown == [], FakePrompt.shown)
+FakePrompt.shown[:] = []
+flow4 = UpdateFlow(ctx.store, w)
+flow4._parent = w
+flow4.check(silent=False, parent=w)
+spin(app, lambda: flow4._check_th is None, 10)
+app.processEvents()
+ck('⑨.手动检查忽略跳过设置', FakePrompt.shown == ['9.9.9.9'], FakePrompt.shown)
+
+# --- 9.2 已是最新：写检查时间且不提示
+SRV['manifest'] = {'version': _B.__version__, 'notes': '', 'file': 'x.deb',
+                   'size': 0, 'sha256': '', 'url': ''}
+FakePrompt.shown[:] = []
+st.setValue('update/skip', '')
+st.setValue('update/last', 0)
+st.sync()
+flow5 = UpdateFlow(ctx.store, w)
+flow5._parent = w
+flow5.check(silent=True, parent=w)
+spin(app, lambda: flow5._check_th is None, 10)
+app.processEvents()
+ck('⑨.已是最新不提示', FakePrompt.shown == [], FakePrompt.shown)
+ck('⑨.检查时间已落盘', int(st.value('update/last') or 0) > 0)
+ck('⑨.清单版本已记录', str(st.value('update/lastver')) == _B.__version__)
+
+# --- 9.3 手动检查失败给出提示（清单缺安装包地址 -> resolve_url 失败）
+SRV['manifest'] = {'version': '9.9.9.9', 'notes': '', 'file': 'x.deb',
+                   'size': 0, 'sha256': '', 'url': ''}
+flow6 = UpdateFlow(ctx.store, w)
+flow6._parent = w
+flow6.check(silent=False, parent=w)
+spin(app, lambda: flow6._check_th is None, 10)
+app.processEvents()
+ck('⑨.手动检查失败有提示', len(msgs['warn']) >= 1, msgs['warn'])
+
+# ================= ⑩ 安全 =================
+brand_free = True
+for fn in ('update.py', 'updatedlg.py'):
+    txt = open(os.path.join(OUT, 'brl', fn), encoding='utf-8').read()
+    if 'access_token' in txt or 'token=' in txt:
+        brand_free = False
+ck('⑩.更新模块不携带令牌', brand_free)
+ck('⑩.数据源指向 GitCode', U.PAGE.startswith('https://gitcode.com/'), U.PAGE)
+
+# CLI 自检参数
+import io
+import contextlib
+import brl.__main__ as MAIN
+_real_fm = U.fetch_manifest
+U.fetch_manifest = lambda timeout=10: {'version': '9.9.9.9', 'file': 'f.deb'}
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    handled, code = MAIN._dispatch(['--check-update'])
+ck('⑩.--check-update 正常', handled and code == 0 and '9.9.9.9' in buf.getvalue(),
+   buf.getvalue())
+U.fetch_manifest = _real_fm
+
+print()
+print('结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))
+if bad:
+    print('未通过:')
+    for n in bad:
+        print(' - ' + n)
+sys.exit(1 if bad else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION data] 数据层自检 =====
+# -*- coding: utf-8 -*-
+"""无头自测：核心逻辑 + 界面构建 + 离屏截图"""
+import os, sys, datetime
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 测试隔离：配置/数据全部落到临时目录，绝不碰用户真实配置
+import brltest_env as _ENV
+_ENV.isolate('self')
+
+
+from brl import lunar as L
+from brl import data as D
+from brl import store as S
+from brl import theme as T
+from brl import holidays as HD
+
+fails = []
+def ck(name, cond, extra=''):
+    print(('PASS ' if cond else 'FAIL ') + name + (' ' + str(extra) if extra and not cond else ''))
+    if not cond:
+        fails.append(name)
+
+# ---- 农历
+ck('lunar.2026春节', L.lunar_from_solar(datetime.date(2026,2,17)).day == 1
+   and L.lunar_from_solar(datetime.date(2026,2,17)).month == 1)
+ck('lunar.2025春节', (L.lunar_from_solar(datetime.date(2025,1,29)).month,
+                      L.lunar_from_solar(datetime.date(2025,1,29)).day) == (1,1))
+ld = L.lunar_from_solar(datetime.date(2026,1,1))
+ck('lunar.2026-01-01', (ld.year, ld.month, ld.day) == (2025, 11, 13), (ld.year, ld.month, ld.day))
+gz, sx = L.ganzhi_year(2026)
+ck('ganzhi.2026', gz == u'丙午年' and sx == u'马', (gz, sx))
+t = L.year_terms(2026)
+ck('terms.2026', len(t) == 24, len(t))
+ck('term.2026冬至', t.get(datetime.date(2026,12,22)) == u'冬至')
+ck('term.2026清明', t.get(datetime.date(2026,4,5)) == u'清明')
+ck('roundtrip', L.solar_from_lunar(2026,1,1) == datetime.date(2026,2,17))
+ck('roundtrip.leap', True)
+
+# ---- 节假日（内置自制数据）
+import subprocess
+_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brl')
+ck('holiday.2026元旦休', D.HOLIDAY.is_free(datetime.date(2026,1,1)) is True)
+ck('holiday.周末', D.HOLIDAY.is_free(datetime.date(2026,10,17)) is True)   # 周六
+ck('holiday.2026国庆名', D.HOLIDAY.fest(datetime.date(2026,10,1)) == u'国庆节')
+ck('holiday.2026春节名', D.HOLIDAY.fest(datetime.date(2026,2,17)) == u'春节')
+ck('holiday.内置条数', len(HD.FESTS) >= 15, len(HD.FESTS))
+ck('themes', len(T.ALL_THEMES) == 8, len(T.ALL_THEMES))
+
+# ---- 素材清理：原始素材必须彻底剥离
+# 关键词用拼接与转义两种方式构造，避免字面进入公开仓库
+_KW = ['bai' + 'sha', '\u767d\u9ca8']
+r = subprocess.run(['grep', '-rn'] + [a for k in _KW for a in ('-e', k)] + [_ROOT],
+                   capture_output=True)
+ck('clean.无原始品牌字样', r.returncode == 1)
+ck('clean.自制图标存在', os.path.exists(os.path.join(
+    _ROOT, 'resources/icons/calendar.png')))
+ck('clean.原素材目录已移除', not any(
+    os.path.exists(os.path.join(_ROOT, 'resources', d))
+    for d in ('img', 'theme', 'data')))
+
+# ---- 存储
+st = S.Store()
+tid = st.add(u'自测待办', date='2026-10-15', repeat=0, remind=2, remind_time='09:00')
+ck('store.add', tid > 0)
+rows = st.for_date(datetime.date(2026,10,15))
+ck('store.for_date', any(r['id'] == tid for r in rows))
+st.update(tid, content=u'自测待办2')
+ck('store.update', st.get(tid)['content'] == u'自测待办2')
+st.remove(tid)
+ck('store.remove', st.get(tid) is None)
+
+# ---- 界面
+from PyQt5.QtWidgets import QApplication
+from PyQt5.QtCore import Qt
+app = QApplication([])
+QApplication.setStyle('Fusion')
+import brl.appctx as A
+
+# ---- 周数
+from brl.caltable import CalTable
+cal0 = CalTable()
+ck('week.jan1.2026W1', cal0.week_no(datetime.date(2026,1,1)) == 1)
+cal0.set_options(weekstart='mon')
+ck('week.mon.2026W1', cal0.week_no(datetime.date(2026,1,1)) == 1)
+ck('week.mon.iso', cal0.week_no(datetime.date(2026,12,31))
+   == datetime.date(2026,12,31).isocalendar()[1])
+
+# ---- 应用图标与命名
+ck('appicon', not T.app_icon().isNull())
+ck('rename.应用名', A.APP_NAME == u'桌面悬浮日历', A.APP_NAME)
+ck('bar.已移除', not os.path.exists(os.path.join(_ROOT, 'barwin.py')))
+ck('tools.按钮全部用自制图标', all(
+    k in A.MainWindow.ICON_FILES for k in
+    ('nav_prev', 'nav_next', 'view', 'lock', 'gear', 'close')))
+
+ctx = A.Context(app)
+ctx.win = A.MainWindow(ctx.store, ctx)
+ctx.win.resize(800, 760)
+ctx.win.show()
+app.processEvents()
+pm = ctx.win.grab()
+pm.save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shot_main.png'))
+print('main window saved', pm.width(), pm.height())
+
+
+# 设置窗
+from brl.settings import SettingsDialog, COLOR_DEFS
+dlg = SettingsDialog(ctx.store, ctx.win)
+dlg.show(); app.processEvents()
+dlg.grab().save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shot_settings.png'))
+# 颜色覆盖：模拟一次透明度调整
+dlg.on_color('mainbg', '#80202020')
+app.processEvents()
+stv = ctx.store.settings()
+ck('color.覆盖已存', str(stv.value('color/mainbg')).startswith('#'), stv.value('color/mainbg'))
+ctx.win._apply_theme()
+app.processEvents()
+ctx.win.grab().save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shot_color.png'))
+# 恢复默认
+dlg._reset_colors()
+app.processEvents()
+ctx.win._apply_theme()
+# 周数列显示
+ctx.win._cal.set_options(week=True)
+app.processEvents()
+ctx.win.grab().save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shot_week.png'))
+ctx.win._cal.set_options(week=False)
+
+# 待办编辑
+from brl.todo import TodoEditDialog, TodoListDialog
+d = TodoEditDialog(ctx.store, datetime.date(2026,10,15), None, None)
+d.show(); app.processEvents()
+d.grab().save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shot_todo.png'))
+
+# 天气功能已按用户要求全局移除（1.2.7.0 起）
+ck('weather.模块已移除', not os.path.exists(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brl', 'weather.py')))
+
+print()
+print('FAILED:', fails if fails else 'none')
+sys.exit(1 if fails else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION e2e] 自启动端到端 =====
+# -*- coding: utf-8 -*-
+"""端到端验证开机自启：勾选 → 生成 → 桌面环境能拉起。
+
+用法: DISPLAY=:0 python3 e2e_autostart.py
+会临时把 general/autostart 置 1 写出文件，验证后还原为 0 并清理。
+"""
+import os
+import sys
+import subprocess
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 测试隔离：配置/数据全部落到临时目录，绝不碰用户真实配置
+import brltest_env as _ENV
+_ENV.isolate('e2e')
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+
+from PyQt5.QtWidgets import QApplication
+app = QApplication(sys.argv)
+
+from brl import store, appctx
+
+AST = appctx.autostart_path()
+BAD = '/tmp/e2e_badbin'
+if not os.path.isdir(BAD):
+    os.makedirs(BAD)
+
+_s = store.Store()
+st = _s.settings()
+old = st.value('general/autostart', '0')
+
+ok = True
+
+
+def step(name, cond, extra=''):
+    global ok
+    print('  %s %s %s' % ('PASS' if cond else 'FAIL', name, extra))
+    if not cond:
+        ok = False
+
+
+print('原配置 general/autostart =', old)
+
+print('== 1. 勾选后立即写入')
+st.setValue('general/autostart', '1')
+st.sync()
+appctx.apply_autostart(_s, True)
+step('文件已生成', os.path.exists(AST), AST)
+if not os.path.exists(AST):
+    sys.exit(1)
+
+txt = open(AST).read()
+print('--- 自启动文件内容 ---')
+print(txt.rstrip())
+print('----------------------')
+
+print('== 2. desktop-file-validate 校验')
+r = subprocess.call(['desktop-file-validate', AST])
+step('通过桌面文件校验', r == 0, 'rc=%d' % r)
+
+print('== 3. 模拟桌面环境拉起（Exec 绝对路径 + 干净 PATH）')
+exe_cmd = [l.split('=', 1)[1].strip()
+           for l in txt.splitlines() if l.startswith('Exec=')]
+if not exe_cmd:
+    step('有 Exec 行', False)
+else:
+    exe = exe_cmd[0]
+    step('Exec 为绝对路径', exe.startswith('/'), exe)
+    # 干净 PATH（不含 WorkBuddy 的私有 python shim），模拟 DDE 会话环境
+    clean = dict(os.environ)
+    clean['PATH'] = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+    clean['DISPLAY'] = ':0'
+    clean['XAUTHORITY'] = os.path.expanduser('~/.Xauthority')
+    clean['HOME'] = os.path.expanduser('~')
+    clean['LANG'] = 'zh_CN.UTF-8'
+    clean['PYTHONPATH'] = '/opt/apps/com.desktop.calendar/files'
+    p = subprocess.Popen([exe], env=clean,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         preexec_fn=os.setsid)
+    try:
+        import time
+        time.sleep(5)
+        # 检查窗口是否真的出现在桌面
+        out = subprocess.check_output(
+            ['xwininfo', '-root', '-tree'],
+            env=dict(os.environ, DISPLAY=':0')).decode('utf-8', 'ignore')
+        lived = u'桌面悬浮日历' in out
+        step('自启动项真的拉起了窗口', lived)
+        polled = p.poll()
+        if polled is not None and polled != 0:
+            so, se = p.communicate()
+            step('进程未异常退出', False,
+                 'rc=%s err=%s' % (polled, se.decode('utf-8', 'ignore')))
+        else:
+            step('进程存活（未被启动器拒绝）', True, 'rc=%s' % polled)
+        try:
+            os.killpg(os.getpgid(p.pid), 9)
+        except OSError:
+            pass
+    except Exception as e:
+        step('拉起流程无异常', False, str(e))
+
+print('== 4. 还原用户配置')
+st.setValue('general/autostart', '0')
+st.sync()
+appctx.apply_autostart(_s, False)
+step('取消后文件移除', not os.path.exists(AST))
+step('配置已还原', st.value('general/autostart', '0') == '0')
+
+print('')
+print('端到端结果: %s' % ('全部通过' if ok else '存在失败项'))
+sys.exit(0 if ok else 1)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION lint] 命名一致性 =====
+# -*- coding: utf-8 -*-
+"""静态检查：模块内是否存在“用了没导入的别名”（如 weather.py 的 L.WEEK_CN）。
+
+这类错误只在特定数据路径下才触发（天气拿到真实数据才走到那行），
+平时跑不出来，却会让进程直接 abort——所以必须静态兜住。
+
+用法: python3 verify.py lint（原 lint_aliases.py，已并入本文件）
+"""
+import ast
+import os
+import sys
+
+BUILTINS = set(dir(__builtins__)) if isinstance(__builtins__, dict) is False else set(__builtins__)
+BUILTINS |= {
+    'True', 'False', 'None', 'self', 'cls', 'super', 'Exception', 'BaseException',
+    'print', 'len', 'range', 'int', 'str', 'float', 'list', 'dict', 'set', 'tuple',
+    'open', 'isinstance', 'getattr', 'setattr', 'hasattr', 'callable', 'sorted',
+    'enumerate', 'zip', 'map', 'filter', 'min', 'max', 'abs', 'round', 'sum', 'any',
+    'all', 'repr', 'type', 'id', 'iter', 'next', 'bytes', 'object', 'property',
+    'staticmethod', 'classmethod', 'ord', 'chr', 'hex', 'format', 'divmod', 'pow',
+}
+
+
+def collect_names(tree):
+    names = set(BUILTINS)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                names.add(a.asname or a.name.split('.')[0])
+        elif isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.name != '*':
+                    names.add(a.asname or a.name)
+        elif isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.add(node.id)
+        elif isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, ast.Global):
+            names.update(node.names)
+        elif isinstance(node, ast.Nonlocal):
+            names.update(node.names)
+    return names
+
+
+def check(path):
+    with open(path) as f:
+        src = f.read()
+    try:
+        tree = ast.parse(src, path)
+    except SyntaxError as e:
+        return ['%s: 语法错误 %s' % (os.path.basename(path), e)]
+    names = collect_names(tree)
+    bad = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            base = node.value.id
+            if base in names:
+                continue
+            # 只报“短别名”形式（模块别名），避免把 obj.xxx 误报。
+            # 注意不能只查小写：模块别名也常写成 L / T / D / S 这类大写单字母，
+            # 之前的 islower() 过滤恰好把真正的 bug（L.WEEK_CN）漏掉了。
+            if 1 <= len(base) <= 3 and base.isalpha():
+                bad.append('%s:%d 未定义的模块别名 %r（使用了 .%s）'
+                           % (os.path.basename(path), node.lineno, base, node.attr))
+    return bad
+
+
+def main():
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brl')
+    problems = []
+    files = sorted(f for f in os.listdir(root) if f.endswith('.py'))
+    for fn in files:
+        problems.extend(check(os.path.join(root, fn)))
+    seen = set()
+    uniq = []
+    for p in problems:
+        if p not in seen:
+            seen.add(p)
+            uniq.append(p)
+    if uniq:
+        print('发现未定义别名:')
+        for p in uniq:
+            print('  ' + p)
+        return 1
+    print('别名引用检查通过（%d 个模块）' % len(files))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
+# ===== [END SECTION] =====

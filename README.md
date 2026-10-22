@@ -101,10 +101,7 @@ sudo dpkg -i desktop-calendar.deb
 │   └── resources/icons/    自制扁平图标（17 个）
 ├── makedeb.py              打包脚本：生成 aarch64 deb
 ├── make_manifest.py        生成 releases/latest.json 版本清单（含 sha256 与 blob 直链）
-├── verify7..verify19.py    回归验证脚本
-├── selftest.py             数据与自检
-├── e2e_autostart.py        自启动端到端测试
-├── lint_aliases.py         别名/命名一致性检查
+├── verify.py               全量回归验证（按功能分节的单文件套件）
 ├── brltest_env.py          测试用 XDG 隔离（防止测试污染真实配置）
 └── screenshots/            文档截图
 ```
@@ -169,40 +166,40 @@ sudo dpkg -r desktop-calendar
 
 ## 开发：验证
 
-改动后请跑全量回归（用系统自带的 `python3` 即可）：
+回归验证已融合为单文件 `verify.py`，按功能分节（原 verify7~19、selftest、e2e、lint 共 16 个脚本全部并入）：
 
 ```bash
-for f in verify7 verify8 verify9 verify11 verify12 verify13 verify14 \
-         verify15 verify16 verify17 verify18 verify19; do python3 $f.py; done
-python3 selftest.py
-python3 e2e_autostart.py
-python3 lint_aliases.py
+python3 verify.py              # 跑全部分节（每节独立子进程，互不污染）
+python3 verify.py v19          # 只跑某一节
+python3 verify.py v7 v19 lint  # 只跑指定的几节
+python3 verify.py --list       # 列出分节
 ```
 
-合计 360 余项断言，覆盖界面、待办、提醒、主题、取色、更新、打包、安装脚本、X11 窗口行为等。
+合计 400 余项断言，覆盖界面、待办、提醒、主题、取色、更新、打包、安装脚本、X11 窗口行为等。
 
-各脚本职责：
+各分节职责：
 
-| 脚本 | 覆盖内容 |
+| 分节 | 覆盖内容 |
 |---|---|
-| verify7 | 界面基础结构与控件 |
-| verify8 | 中文化、自启动配置文件读写 |
-| verify9 | 生成 deb 的包内结构与内容 |
-| verify11 | 日历格子与待办绘制 |
-| verify12 | 待办清单交互 |
-| verify13 | 透明度滑杆与工具图标 |
-| verify14 | 提醒逻辑与今日格 |
-| verify15 | 选中格、时间框、默认值、提醒方向、屏幕自适应 |
-| verify16 | 时间盘与提醒弹窗 |
-| verify17 | 安装流程、改名、桌面图标、版本一致性 |
-| verify18 | 取色盘、锁定贴底、任务栏隐藏、托盘行为 |
-| verify19 | 检查更新：版本比较、频率、清单解析、下载校验、安装调用、设置页签 |
-| selftest | 农历/节假日/主题/存储等数据层自检 |
-| e2e_autostart | 开机自启端到端 |
+| v7 | 界面基础结构与控件 |
+| v8 | 中文化、自启动配置文件读写 |
+| v9 | 生成 deb 的包内结构与内容 |
+| v11 | 日历格子与待办绘制 |
+| v12 | 待办清单交互 |
+| v13 | 透明度滑杆与工具图标 |
+| v14 | 提醒逻辑与今日格 |
+| v15 | 选中格、时间框、默认值、提醒方向、屏幕自适应 |
+| v16 | 时间盘与提醒弹窗 |
+| v17 | 安装流程、改名、桌面图标、版本一致性 |
+| v18 | 取色盘、锁定贴底、任务栏隐藏、托盘行为（需真桌面 X11） |
+| v19 | 检查更新：版本比较、频率、清单解析、下载校验、安装调用、设置页签 |
+| data | 农历/节假日/主题/存储等数据层自检 |
+| e2e | 开机自启端到端 |
+| lint | 别名/命名一致性 |
 
 所有测试通过 `brltest_env.py` 做 XDG 目录隔离，**不会读写用户真实配置**。
 
-> 提示：受限环境下 `rm` / `os.remove` 可能被安全策略改写成"移入回收站"，导致自启动相关测试出现假失败；测试目录应放在 `/tmp` 而非 `/home` 下。
+> 提示：v18 断言真实 X11 窗口状态，须在真桌面下跑（有 `DISPLAY` 时自动用 xcb）；离屏环境会假失败。受限环境下 `rm` / `os.remove` 可能被安全策略改写成"移入回收站"，导致自启动相关测试出现假失败；测试目录应放在 `/tmp` 而非 `/home` 下。
 
 ---
 
