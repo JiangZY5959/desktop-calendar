@@ -9,6 +9,24 @@
 
 ![主界面](screenshots/main.png)
 
+## 下载
+
+| 版本 | 安装包 | 平台 |
+|---|---|---|
+| v1.3.3.0 | [desktop-calendar_1.3.3.0_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/03cf19b1224cc60cf9df0809c191e89bae333ebe/releases/desktop-calendar_1.3.3.0_arm64.deb) | UOS / 飞腾 aarch64 |
+
+安装包也放在仓库的 [`releases/`](releases/) 目录中，可在网页端点开目录后右上角直接下载。
+
+命令行下载：
+
+```bash
+wget -O desktop-calendar.deb \
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/03cf19b1224cc60cf9df0809c191e89bae333ebe/releases/desktop-calendar_1.3.3.0_arm64.deb
+sudo dpkg -i desktop-calendar.deb
+```
+
+> 每个版本的安装包地址随文件内容变化，升级后请以 `releases/` 目录中的最新版本为准。
+
 ---
 
 ## 功能
