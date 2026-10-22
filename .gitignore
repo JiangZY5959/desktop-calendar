@@ -1,0 +1,23 @@
+# Python 字节码
+__pycache__/
+*.py[cod]
+
+# 打包产物（deb 安装包放在 Release 页面，不进仓库）
+dist/
+*.deb
+
+# 运行日志与测试临时目录
+*.log
+_testcfg/
+_dbgcfg*/
+_probe*/
+icon_src/_out/
+
+# 开发过程截图（只有 screenshots/ 目录下的会入库）
+*.png
+!screenshots/**
+
+# 逆向分析期遗留的诊断文件
+diag_*.png
+lunar_*.json
+glyphs2.png
