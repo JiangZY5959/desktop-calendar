@@ -5,7 +5,7 @@
 - 语言：Python 3 + PyQt5
 - 架构：aarch64（LoongArch / x86 只需重新打包，代码无架构相关分支）
 - 许可：MIT
-- 当前版本：**1.4.0.1**
+- 当前版本：**1.4.0.2**
 
 ![主界面](screenshots/main.png)
 
@@ -13,7 +13,7 @@
 
 | 版本 | 安装包 | 平台 |
 |---|---|---|
-| v1.4.0.1 | [desktop-calendar_1.4.0.1_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/922bb71b5534a6deabfde7e23552cb73e1e2d71e/releases/desktop-calendar_1.4.0.1_arm64.deb) | UOS / 飞腾 aarch64 |
+| v1.4.0.2 | [desktop-calendar_1.4.0.2_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/52a8f8ab4497f90cc798695c01f7ad92bfb3c96a/releases/desktop-calendar_1.4.0.2_arm64.deb) | UOS / 飞腾 aarch64 |
 
 安装包也放在仓库的 [`releases/`](releases/) 目录中，可在网页端点开目录后右上角直接下载。已安装旧版的用户不必手动下载：**软件会自己检查更新并安装**（见下文）。
 
@@ -21,7 +21,7 @@
 
 ```bash
 wget -O desktop-calendar.deb \
-  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/922bb71b5534a6deabfde7e23552cb73e1e2d71e/releases/desktop-calendar_1.4.0.1_arm64.deb
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/52a8f8ab4497f90cc798695c01f7ad92bfb3c96a/releases/desktop-calendar_1.4.0.2_arm64.deb
 sudo dpkg -i desktop-calendar.deb
 ```
 
@@ -63,7 +63,10 @@ sudo dpkg -i desktop-calendar.deb
 - 首次启动按屏幕分辨率等比确定窗口位置和大小；之后记住用户自己调整的结果，只要不卸载重装就按用户设定显示
 
 ### 系统集成
-- 安装后询问是否立即运行、是否设为开机自动启动（60 秒无操作自动跳过，静默安装不卡流程）
+- 安装后弹出**一个**询问窗口，一次勾选「开机自动启动」与「立即运行」（60 秒无操作自动按"稍后"处理）
+- 询问窗口用软件自带的界面实现，**不依赖 zenity**（很多 UOS 机器没装它，依赖就会"装完什么都不弹"）；实在弹不出来时退回 zenity / 终端提问
+- 无人值守安装（apt 静默、升级覆盖）不打扰；升级时也不再重复询问
+- 安装时实在没问成的（比如终端里装、无图形环境），**首次运行软件时会补问一次**是否开机自启
 - 安装后自动在用户桌面创建快捷方式
 - `deb` 遵循 UOS 应用规范，安装到 `/opt/apps/com.desktop.calendar/`
 
@@ -137,7 +140,7 @@ python3 make_manifest.py      # 生成 releases/latest.json（版本清单）
 ## 安装
 
 ```bash
-sudo dpkg -i desktop-calendar_1.4.0.1_arm64.deb
+sudo dpkg -i desktop-calendar_1.4.0.2_arm64.deb
 ```
 
 安装过程中会弹出两次询问（是否开机自启、是否立即运行），可用图形界面点选，也可直接关闭跳过。

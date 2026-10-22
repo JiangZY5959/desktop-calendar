@@ -19,7 +19,7 @@ from .settings import SettingsDialog
 from .updatedlg import UpdateFlow
 from . import x11fix as X11
 
-from . import APP_NAME, __version__ as APP_VER
+from . import APP_NAME, APPID, __version__ as APP_VER
 
 
 class RemindPopup(QDialog):
@@ -234,6 +234,36 @@ class MainWindow(QWidget):
         self._upd_t.timeout.connect(self._auto_update)
         self._upd_t.start(3600 * 1000)
         QTimer.singleShot(5000, self._auto_update)
+
+        # 安装时没能弹窗问过的话，首次启动补问一次开机自启
+        QTimer.singleShot(900, self._ask_autostart_once)
+
+    # ------------------------------------------------ 首次启动补问
+    # 只有真正装到 /opt/apps 下才提示：源码目录里跑时不打扰，也不会在
+    # 自动化验证里冒出个模态窗把测试卡住。
+    def _installed(self):
+        return os.path.isdir(os.path.join(
+            '/opt/apps', APPID, 'files', 'brl'))
+
+    def _ask_autostart_once(self):
+        if not self._installed():
+            return
+        try:
+            from . import askinstall as AI
+            if AI.asked_before():
+                return
+            ans = AI.ask(ask_run=False, parent=self)
+            if ans is None:
+                return
+            auto, _run = ans
+            from . import appctx as AX
+            st = self._store.settings()
+            st.setValue('general/autostart', '1' if auto else '0')
+            st.sync()
+            AX.apply_autostart(self._store)
+            AI.mark_asked()
+        except Exception:
+            pass
 
     # ------------------------------------------------ 尺寸 / 位置
     def _screen(self):

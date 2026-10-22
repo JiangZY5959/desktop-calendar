@@ -1859,7 +1859,8 @@ ck('②.含立即运行询问', u'现在运行' in pi and pi.count('zenity') >= 
 ck('②.提示文案为真中文', '\\u' not in pi, '仍有 \\uXXXX 转义')
 ck('②.含桌面图标写入', '$APPID.desktop' in pi and 'cp -f "$DSRC"' in pi)
 ck('②.调程序写自启配置', '--set-autostart on' in pi)
-ck('②.无人值守不卡安装', 'DEBIAN_FRONTEND' in pi and 'noninteractive' in pi)
+ck('②.无人值守不卡安装', 'timeout 75' in pi and '[ -t 0 ]' in pi,
+   '弹窗有外层 timeout 75 保护；终端安装才走 read 提问')
 ck('②.zenity 带超时', '--timeout=' in pi)
 # set -e 下不能出现裸的 `[ 条件 ] && 命令`（条件为假会让脚本直接退出）
 risky = [ln.strip() for ln in pi.splitlines()
@@ -2002,6 +2003,85 @@ dlg.on_color('txtclr', '#00FF00')
 app.processEvents()
 ck('⑦.改第二次同样生效', ctx.win._theme.get('txtclr') == '#00FF00',
    ctx.win._theme.get('txtclr'))
+
+# ---- ⑧ 安装后询问：一次弹窗问两件事，不依赖 zenity ----
+print('== ⑧ 安装后询问 ==')
+POSTINST = open(os.path.join(OUT, 'makedeb.py'), encoding='utf-8').read()
+ck('⑧.postinst 调用自带 --ask-install', '--ask-install' in POSTINST)
+ck('⑧.自带对话框失败才走 zenity 兜底', 'own dialog failed' in POSTINST and
+   'zenity --question' in POSTINST)
+ck('⑧.终端安装有 tty 提问兜底', '[ -t 0 ]' in POSTINST)
+ck('⑧.升安装不再询问', 'upgrade: skip prompts' in POSTINST)
+ck('⑧.兜底路径会打"已问过"标记', '--mark-asked' in POSTINST)
+ck('⑧.不再依赖 /tmp/.X11-unix 判断有无显示',
+   'UDISP=""' in POSTINST and 'UDISP=":0"' in POSTINST)
+ck('⑧.命令替换失败不会中断安装', '|| rc=$?' in POSTINST)
+
+AI = __import__('brl.askinstall', fromlist=['askinstall'])
+ck('⑧.对话框含自启与运行两项', AI.AskDialog is not None)
+d0 = AI.AskDialog(ask_run=True, timeout=3)
+ck('⑧.默认两项都勾选', d0._cb_auto.isChecked() and d0._cb_run.isChecked())
+ck('⑧.没点确定时按"不"处理', d0.answers() == (False, False))
+d0._ok()
+ck('⑧.点确定后读到勾选', d0.answers() == (True, True))
+d1 = AI.AskDialog(ask_run=False, timeout=3)
+ck('⑧.首启补问只有自启一项', d1._cb_run is None and d1._cb_auto.isChecked())
+d1._later()
+ck('⑧.稍后=两项都不做', d1.answers() == (False, False))
+# 无显示环境：main() 返回 3 且不创建 QApplication
+_env_disp = os.environ.pop('DISPLAY', None)
+try:
+    rc3 = AI.main(ask_run=True, argv=['x'])
+finally:
+    if _env_disp is not None:
+        os.environ['DISPLAY'] = _env_disp
+ck('⑧.无显示时不弹窗返回 3', rc3 == 3, rc3)
+AI.mark_asked()
+ck('⑧.打过标记后不再问', AI.asked_before() and
+   AI.main(ask_run=True, argv=['x']) == 2)
+# 对勾图标存在且非空
+ck('⑧.自绘对勾图标就位', os.path.getsize(
+    os.path.join(OUT, 'brl', 'resources', 'icons', 'tool_check.png')) > 50)
+# 首启补问只在真安装路径下触发
+ck('⑧.首启补问有 /opt/apps 守卫', '_installed' in
+   open(os.path.join(OUT, 'brl', 'mainwin.py'), encoding='utf-8').read() and
+   "'/opt/apps'" in open(os.path.join(OUT, 'brl', 'mainwin.py'),
+                         encoding='utf-8').read())
+# main() 全链路：确定后输出 autostart/run 两行（假对话框模拟点击）
+class _FakeDlg(object):
+    def __init__(self, ask_run, parent=None):
+        self.ask_run = ask_run
+
+    def exec_(self):
+        pass
+
+    def answers(self):
+        return True, True
+
+
+_real_ad = AI.AskDialog
+_real_dok = AI.X11.display_ok
+AI.AskDialog = _FakeDlg
+AI.X11.display_ok = lambda d=None: True      # 假装能弹窗（离屏连不上 X）
+AI._new_settings().setValue('general/autostart_asked', 0)
+AI._new_settings().sync()
+_env_disp = os.environ.pop('DISPLAY', None)
+try:
+    _buf = __import__('io').StringIO()
+    _old = sys.stdout
+    sys.stdout = _buf
+    try:
+        rc0 = AI.main(ask_run=True, argv=['x'])
+    finally:
+        sys.stdout = _old
+finally:
+    if _env_disp is not None:
+        os.environ['DISPLAY'] = _env_disp
+    AI.AskDialog = _real_ad
+    AI.X11.display_ok = _real_dok
+ck('⑧.确定后输出 autostart/run 两行', rc0 == 0 and
+   'autostart=1' in _buf.getvalue() and 'run=1' in _buf.getvalue(),
+   _buf.getvalue())
 
 print()
 print('结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))

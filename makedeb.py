@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, 'brl')
 APPID = 'com.desktop.calendar'
 PKG = 'desktop-calendar'
-VER = '1.4.0.1'
+VER = '1.4.0.2'
 OUT = os.path.join(ROOT, 'dist')
 APP_NAME = u'桌面悬浮日历'
 
@@ -129,7 +129,20 @@ if [ -z "$UHOME" ]; then
     UHOME="/home/$U"
 fi
 UXAUTH="$UHOME/.Xauthority"
-UDISP=":0"
+# X 显示：UOS 走 abstract socket（/tmp/.X11-unix 是空的），有 socket 文件就照
+# 它取，没有就按 :0 来；到底连不连得上，由软件自己 XOpenDisplay 试过才知道。
+UDISP=""
+if [ -d /tmp/.X11-unix ]; then
+    for _s in /tmp/.X11-unix/X*; do
+        if [ -S "$_s" ]; then
+            UDISP=":${_s#/tmp/.X11-unix/X}"
+            break
+        fi
+    done
+fi
+if [ -z "$UDISP" ]; then
+    UDISP=":0"
+fi
 
 as_user() {
     if [ -n "$U" ] && command -v runuser >/dev/null 2>&1; then
@@ -165,19 +178,68 @@ else
 fi
 
 # ---------- 2) 询问：开机自启 / 立即运行 ----------
+# 三种手段依次尝试，哪个能用用哪个：
+#   ① 软件自带对话框（首选）：UOS 上常常没装 zenity/kdialog/yad，依赖它们
+#      等于"装完什么都不弹"；软件自己带 PyQt5，一个窗口问完两件事。
+#   ② zenity（有 X 有 zenity 时才用）
+#   ③ 终端提问（有 tty 时）
+# 手段 ① 弹不出来时会以退出码 3 退出，这里据此往下走 ②/③。
 AUTO=0
 RUNNOW=0
-if [ "$DEBIAN_FRONTEND" = "noninteractive" ]; then
-    echo "noninteractive: skip prompts" >>"$LOG" 2>/dev/null || true
-elif command -v zenity >/dev/null 2>&1 && [ -S "/tmp/.X11-unix/X${UDISP#:}" ]; then
+ASKED=0
+NEED_MARK=0
+if [ -n "$2" ]; then
+    echo "upgrade: skip prompts" >>"$LOG" 2>/dev/null || true
+    ASKED=1
+fi
+
+if [ "$ASKED" = "0" ]; then
+    # set -e 下，命令替换失败会直接中断安装，用 || rc=$? 接住
+    rc=0
+    OUT="$(as_user "timeout 75 /usr/bin/desktop-calendar --ask-install" 2>>"$LOG")" || rc=$?
+    if [ "$rc" = "0" ]; then
+        ASKED=1
+        if echo "$OUT" | grep -q '^autostart=1$'; then
+            AUTO=1
+        fi
+        if echo "$OUT" | grep -q '^run=1$'; then
+            RUNNOW=1
+        fi
+    elif [ "$rc" = "2" ]; then
+        echo "already asked: skip" >>"$LOG" 2>/dev/null || true
+        ASKED=1
+    else
+        echo "own dialog failed (rc=$rc), fallback" >>"$LOG" 2>/dev/null || true
+    fi
+fi
+
+if [ "$ASKED" = "0" ] && command -v zenity >/dev/null 2>&1; then
     if as_user 'zenity --question --title="桌面悬浮日历" --text="是否将桌面悬浮日历设为开机自动启动？" --timeout=60'; then
         AUTO=1
     fi
     if as_user 'zenity --question --title="桌面悬浮日历" --text="是否现在运行桌面悬浮日历？" --timeout=60'; then
         RUNNOW=1
     fi
-else
-    echo "no zenity or no X: skip prompts" >>"$LOG" 2>/dev/null || true
+    ASKED=1
+    NEED_MARK=1
+    echo "asked via zenity" >>"$LOG" 2>/dev/null || true
+fi
+
+if [ "$ASKED" = "0" ] && [ -t 0 ]; then
+    printf '桌面悬浮日历：设为开机自动启动？[Y/n] '
+    read -r a1 || a1=""
+    case "$a1" in ''|[Yy]*) AUTO=1 ;; esac
+    printf '桌面悬浮日历：现在启动？[Y/n] '
+    read -r a2 || a2=""
+    case "$a2" in ''|[Yy]*) RUNNOW=1 ;; esac
+    ASKED=1
+    NEED_MARK=1
+    echo "asked via tty" >>"$LOG" 2>/dev/null || true
+fi
+
+if [ "$ASKED" = "0" ]; then
+    # 装的时候实在问不了（无人值守安装等）：留给首次启动时补问
+    echo "no way to ask: leave it to first run" >>"$LOG" 2>/dev/null || true
 fi
 
 if [ "$AUTO" = "1" ]; then
@@ -187,6 +249,10 @@ fi
 if [ "$RUNNOW" = "1" ]; then
     as_user 'setsid nohup /usr/bin/desktop-calendar >/dev/null 2>&1 &' || true
     echo "launched" >>"$LOG" 2>/dev/null || true
+fi
+# 走 zenity / 终端问的，自己报个"已问过"，免得首次启动时又被问一遍
+if [ "$NEED_MARK" = "1" ]; then
+    as_user '/usr/bin/desktop-calendar --mark-asked' >>"$LOG" 2>&1 || true
 fi
 #DEBHELPER#
 exit 0

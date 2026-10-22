@@ -121,6 +121,28 @@ def available():
     return _LIB is not None
 
 
+def display_ok(display=None):
+    """X 显示能不能打开（装完后用来判断"能不能弹窗"）。
+
+    UOS 的 X 走 abstract socket，/tmp/.X11-unix 下是空的，所以不能靠找
+    socket 文件来判断，只能真的去连一次。
+    """
+    if not _LIB:
+        return False
+    try:
+        name = display.encode('utf-8') if display else None
+        d = ctypes.c_void_p(_LIB.XOpenDisplay(name))
+        if not d:
+            return False
+        try:
+            _LIB.XCloseDisplay(d)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
 class _Dpy(object):
     """XOpenDisplay 上下文，保证异常时也能关闭。"""
 

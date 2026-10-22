@@ -1,10 +1,10 @@
 {
-  "version": "1.4.0.1",
-  "tag": "v1.4.0.1",
-  "file": "desktop-calendar_1.4.0.1_arm64.deb",
-  "size": 73296,
-  "sha256": "255108cdce475ffd2b7cbfb252395bc797aa6769e57ef58eb9ed81aa0e8f96bb",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/922bb71b5534a6deabfde7e23552cb73e1e2d71e/releases/desktop-calendar_1.4.0.1_arm64.deb",
+  "version": "1.4.0.2",
+  "tag": "v1.4.0.2",
+  "file": "desktop-calendar_1.4.0.2_arm64.deb",
+  "size": 76724,
+  "sha256": "1fbc9d3bed923e9a83da940ea94a20357de2e48e09655ac59cc3ad2e266aa147",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/52a8f8ab4497f90cc798695c01f7ad92bfb3c96a/releases/desktop-calendar_1.4.0.2_arm64.deb",
   "released": "2026-10-22",
-  "notes": "· 下拉框重做统一样式：设置页（检查频率、第一周起点、字体大小）与待办编辑窗全部改用一套自制下拉外观——细边框、圆角、自制灰色箭头\n· 修复悬停看不见文字：展开列表的悬停 / 选中色显式写死为浅蓝底 + 深色字，不再跟随系统调色板（之前浅底叠浅字，鼠标一扫就\"隐形\"）\n· 「检查更新」页的下拉加宽到合适宽度；基础设置页三个下拉与标签的行距收紧，不再溢出右边缘\n· 下拉样式收拢到 brl/theme.py 的 combo_style()，待办与设置共用一处\n· 修复「锁定」偶尔失效：窗口管理器在窗口映射后会按自己的状态表回写 _NET_WM_STATE，把刚写入的 BELOW 抹掉（实测约三分之一概率）。现在改为按 EWMH 规范发 ClientMessage 请窗口管理器改，再补一次属性直写兜底，并在 0.2 / 0.7 秒后各做一次自愈确认"
+  "notes": "· 修复\"安装后没有弹出询问\"：之前安装脚本依赖 zenity，而很多 UOS 机器（包括本项目的开发机）根本没装 zenity，也没有 /tmp/.X11-unix socket 文件，两个条件全不成立，询问被静默跳过\n· 现在改用软件自带的询问窗口（PyQt5 自绘，与软件同一观感）：一个窗口勾选「开机自动启动」与「立即运行」，不再连弹两次；60 秒无操作自动按\"稍后\"处理\n· 三级兜底：自带对话框 → zenity（有才用）→ 终端提问（终端里安装时）；全都不可用则留到首次启动时补问一次是否开机自启\n· 升级覆盖安装时不再重复询问；无人值守安装（apt 静默）不会被弹窗卡住\n· 顺带：X 显示探测改为真实 XOpenDisplay 试连（UOS 的 X 走 abstract socket，/tmp/.X11-unix 是空的）"
 }

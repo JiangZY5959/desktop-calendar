@@ -27,6 +27,26 @@ def _dispatch(argv):
         sys.stdout.write('autostart: %s\n' % ('on' if state else 'off'))
         return True, 0
 
+    if argv[0] == '--ask-install':
+        # 用法: desktop-calendar --ask-install
+        # 由安装后脚本以"目标用户"身份调用：弹一个窗口问「开机自启」与
+        # 「立即运行」，结果打印成 autostart=0/1、run=0/1 两行。
+        from . import askinstall as AI
+        return True, AI.main(ask_run=True, argv=sys.argv[:1])
+
+    if argv[0] == '--ask-autostart':
+        # 用法: desktop-calendar --ask-autostart
+        # 只问「开机自启」这一个问题，用于装时没问成时的首次启动补问。
+        from . import askinstall as AI
+        return True, AI.main(ask_run=False, argv=sys.argv[:1])
+
+    if argv[0] == '--mark-asked':
+        # 用法: desktop-calendar --mark-asked
+        # 标记"开机自启已经问过"，后面不再打扰。
+        from . import askinstall as AI
+        AI.mark_asked()
+        return True, 0
+
     if argv[0] == '--make-desktop-icon':
         # 用法: desktop-calendar --make-desktop-icon
         # 在用户桌面创建快捷方式（XDG_DESKTOP_DIR / ~/桌面 / ~/Desktop）
