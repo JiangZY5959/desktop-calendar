@@ -35,6 +35,22 @@ def _dispatch(argv):
         sys.stdout.write('desktop icon: %s\n' % ('ok' if made else 'fail'))
         return True, 0
 
+    if argv[0] == '--check-update':
+        # 用法: desktop-calendar --check-update
+        # 命令行查一次版本（不下载、不弹窗），便于排查网络问题
+        from . import update as U
+        from . import __version__ as cur
+        try:
+            m = U.fetch_manifest()
+        except Exception as e:
+            sys.stdout.write(u'check failed: %s\n' % (e,))
+            return True, 1
+        newer = U.is_newer(m.get('version'), cur)
+        sys.stdout.write(u'current: %s\nremote : %s\nnewer  : %s\nfile   : %s\n'
+                         % (cur, m.get('version'), 'yes' if newer else 'no',
+                            m.get('file')))
+        return True, 0
+
     return False, 0
 
 

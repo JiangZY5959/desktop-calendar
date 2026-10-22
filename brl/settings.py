@@ -10,10 +10,11 @@
 - 今日背景 / 窗口背景 / 格子背景 / 周末背景 颜色（含透明度滑杆）
 - 默认设置（恢复当前主题默认）
 """
+import datetime
 import os
 
-from PyQt5.QtCore import Qt, pyqtSignal, QRectF, QPointF
-from PyQt5.QtGui import QPainter, QColor, QPen
+from PyQt5.QtCore import Qt, pyqtSignal, QRectF, QPointF, QTimer, QUrl
+from PyQt5.QtGui import QPainter, QColor, QPen, QDesktopServices
 from PyQt5.QtWidgets import (QDialog, QWidget, QLabel, QPushButton, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QCheckBox, QComboBox,
                              QScrollArea, QFrame, QColorDialog, QStackedWidget,
@@ -21,7 +22,8 @@ from PyQt5.QtWidgets import (QDialog, QWidget, QLabel, QPushButton, QVBoxLayout,
 
 from . import data as D
 from . import theme as T
-from . import APP_NAME
+from . import update as U
+from . import APP_NAME, __version__ as APP_VER
 
 
 class AlphaSlider(QSlider):
@@ -281,6 +283,7 @@ class ThemeCard(QPushButton):
 
 class SettingsDialog(QDialog):
     settingChanged = pyqtSignal(str, object)
+    checkRequested = pyqtSignal()          # 「立即检查」更新
 
     def __init__(self, store, parent=None):
         QDialog.__init__(self, parent)
@@ -302,7 +305,7 @@ class SettingsDialog(QDialog):
         left = QVBoxLayout()
         left.setSpacing(12)
         self._tabs = []
-        for i, name in enumerate((u'基础设置', u'背景设置')):
+        for i, name in enumerate((u'基础设置', u'背景设置', u'检查更新')):
             b = QPushButton(name)
             b.setFixedSize(140, 36)
             b.setCheckable(True)
@@ -317,7 +320,12 @@ class SettingsDialog(QDialog):
         self._color_picks = {}
         self._build_basic()
         self._build_theme()
+        self._build_update()
         self._switch(0)
+        # 状态那行小字跟着后台检查结果自动刷新（检查在另一个线程里跑）
+        self._upd_t = QTimer(self)
+        self._upd_t.timeout.connect(self.refresh_update_status)
+        self._upd_t.start(2000)
 
     def _switch(self, i):
         for k, b in enumerate(self._tabs):
@@ -470,6 +478,35 @@ class SettingsDialog(QDialog):
         outer.addWidget(sc)
         self._stack.addWidget(page)
 
+    def _upd_status(self):
+        """更新页里的状态行：上次检查时间 / 结果 / 是否跳过过某版本。"""
+        st = self._store.settings()
+        last = 0
+        try:
+            last = int(st.value('update/last') or 0)
+        except (TypeError, ValueError):
+            last = 0
+        when = u'从未检查'
+        if last:
+            try:
+                when = datetime.datetime.fromtimestamp(last).strftime('%Y-%m-%d %H:%M')
+            except Exception:
+                when = u'未知'
+        bits = [u'上次检查：%s' % when]
+        lastver = str(st.value('update/lastver') or '')
+        if lastver and U.is_newer(lastver, APP_VER):
+            bits.append(u'发现新版本 v%s' % lastver)
+        elif last:
+            bits.append(u'远端无更新')
+        skip = str(st.value('update/skip') or '')
+        if skip:
+            bits.append(u'已跳过 v%s' % skip)
+        return u'　·　'.join(bits)
+
+    def refresh_update_status(self):
+        if getattr(self, '_upd_lb', None) is not None:
+            self._upd_lb.setText(self._upd_status())
+
     def _reset_colors(self):
         """恢复默认颜色。
 
@@ -506,6 +543,92 @@ class SettingsDialog(QDialog):
             g.addWidget(ThemeCard(i, None, self), i // 2, i % 2)
         sc.setWidget(inner)
         lay.addWidget(sc)
+        self._stack.addWidget(page)
+
+    # ---------------- 检查更新（与基础/背景设置同级的独立页签）----------------
+    def _build_update(self):
+        page = QWidget()
+        page.setStyleSheet('#updPage{background:transparent;}')
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(20, 18, 20, 18)
+        lay.setSpacing(10)
+        st = self._store.settings()
+
+        ttl = QLabel(u'检查更新')
+        ttl.setStyleSheet('color:#202020;font-size:16px;font-weight:bold;')
+        lay.addWidget(ttl)
+        self._ver_lb = QLabel(u'当前版本 v%s' % APP_VER)
+        self._ver_lb.setStyleSheet('color:#5A6069;font-size:13px;')
+        lay.addWidget(self._ver_lb)
+
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.HLine)
+        sep1.setFixedHeight(1)
+        sep1.setStyleSheet('background:#E6E7E8;border:none;')
+        lay.addWidget(sep1)
+
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        row.addWidget(QLabel(u'检查频率:'))
+        cbu = QComboBox()
+        for key, name, _days in U.MODE_DAYS:
+            cbu.addItem(name, key)
+        cur = str(st.value('update/mode') or U.MODE_DEFAULT)
+        idx = cbu.findData(cur)
+        cbu.setCurrentIndex(idx if idx >= 0 else 0)
+        cbu.setToolTip(u'到点后自动到 GitCode 查一次版本；\n'
+                       u'「仅手动检查」只在点「立即检查」时联网')
+        cbu.currentIndexChanged.connect(
+            lambda i: self.on_value('update/mode', cbu.itemData(i)))
+        self._upd_cb = cbu
+        row.addWidget(cbu)
+        bupd = QPushButton(u'立即检查')
+        bupd.setFixedSize(96, 30)
+        bupd.setCursor(Qt.PointingHandCursor)
+        bupd.setStyleSheet('QPushButton{background:#FFFFFF;color:#202020;'
+                           'border:1px solid #D9DCE1;border-radius:4px;font-size:13px;}'
+                           'QPushButton:hover{background:#F5F8FF;border-color:#2F7BFF;}')
+        bupd.clicked.connect(self.checkRequested.emit)
+        self._upd_btn = bupd
+        row.addWidget(bupd)
+        row.addStretch(1)
+        lay.addLayout(row)
+
+        self._upd_lb = QLabel(self._upd_status())
+        self._upd_lb.setStyleSheet('color:#8A8F99;font-size:12px;')
+        lay.addWidget(self._upd_lb)
+
+        hint = QLabel(
+            u'发现新版本时会弹出提示；确认更新后会自动从 GitCode 下载安装包，\n'
+            u'校验后调用系统安装程序完成安装。\n'
+            u'检查更新只读取版本清单，不上传任何数据。')
+        hint.setWordWrap(True)
+        hint.setStyleSheet('color:#8A8F99;font-size:12px;')
+        lay.addWidget(hint)
+
+        lay.addSpacing(6)
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.HLine)
+        sep2.setFixedHeight(1)
+        sep2.setStyleSheet('background:#E6E7E8;border:none;')
+        lay.addWidget(sep2)
+        row2 = QHBoxLayout()
+        row2.setSpacing(10)
+        row2.addWidget(QLabel(u'项目主页:'))
+        bpage = QPushButton(u'gitcode.com/gcw_6ciOFeue/desktop-calendar')
+        bpage.setCursor(Qt.PointingHandCursor)
+        bpage.setFlat(True)
+        bpage.setStyleSheet(
+            'QPushButton{background:transparent;border:none;color:#2F7BFF;'
+            'font-size:13px;text-align:left;}'
+            'QPushButton:hover{color:#4A8CFF;}')
+        bpage.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(U.PAGE)))
+        row2.addWidget(bpage)
+        row2.addStretch(1)
+        lay.addLayout(row2)
+
+        lay.addStretch(1)
         self._stack.addWidget(page)
 
 

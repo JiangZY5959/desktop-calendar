@@ -16,6 +16,7 @@ from . import store as S
 from .caltable import CalTable
 from .todo import TodoEditDialog, TodoListDialog
 from .settings import SettingsDialog
+from .updatedlg import UpdateFlow
 from . import x11fix as X11
 
 from . import APP_NAME, __version__ as APP_VER
@@ -225,6 +226,14 @@ class MainWindow(QWidget):
         self._t.timeout.connect(self._tick)
         self._t.start(15000)
         self._tick()
+
+        # 检查更新：启动几秒后先判断一次是否到期，之后每小时复核，
+        # 长时间开着软件也能到点自动检查（默认每天一次，可在设置里改）。
+        self._updater = UpdateFlow(store, self)
+        self._upd_t = QTimer(self)
+        self._upd_t.timeout.connect(self._auto_update)
+        self._upd_t.start(3600 * 1000)
+        QTimer.singleShot(5000, self._auto_update)
 
     # ------------------------------------------------ 尺寸 / 位置
     def _screen(self):
@@ -695,15 +704,37 @@ class MainWindow(QWidget):
         a = m.addAction(u'同步时间')
         a.triggered.connect(self._sync_time)
         m.addSeparator()
+        m.addAction(u'检查更新', lambda: self.check_updates(False))
         m.addAction(u'选项设置', self.open_settings)
         m.addAction(u'关于', self._about)
         m.addSeparator()
         m.addAction(u'退出软件', lambda: self._ctx.quit())
         return m
 
+    # ------------------------------------------------ 检查更新
+    def _auto_update(self):
+        """到点才真的去查（周期由 update/mode 决定，manual 永不自动查）。"""
+        from . import update as U
+        st = self._store.settings()
+        mode = str(st.value('update/mode') or U.MODE_DEFAULT)
+        try:
+            last = int(st.value('update/last') or 0)
+        except (TypeError, ValueError):
+            last = 0
+        if U.due(mode, last):
+            self._updater.check(silent=True)
+
+    def check_updates(self, silent=False, parent=None):
+        """手动 / 自动检查更新。silent=True 时只在发现新版时提示。"""
+        return self._updater.check(silent=silent,
+                                   parent=parent or self)
+
     def open_settings(self):
         dlg = SettingsDialog(self._store, self)
         dlg.settingChanged.connect(self._on_setting)
+        # 设置页里的「立即检查」交给同一条流程处理；parent 传对话框本身，
+        # 否则模态对话框会挡住随之弹出的更新提示窗。
+        dlg.checkRequested.connect(lambda: self.check_updates(False, dlg))
         dlg.exec_()
         self._apply_theme()
 

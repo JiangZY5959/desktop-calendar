@@ -24,6 +24,10 @@ DEFAULTS = {
     # 显示项
     'cal/showline': 1,            # 显示网格线
 
+    # 检查更新：daily / weekly / monthly / manual
+    # （新装的软件默认每天自动检查一次；用户可在选项设置里改）
+    'update/mode': 'daily',
+
     # 颜色 / 透明度（#AARRGGBB 或 #RRGGBBAA，与主界面求解顺序一致）
     'color/mainbg': '#05000000',        # 背景
     'color/gridbg': '#05000000',        # 日期格底色

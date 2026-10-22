@@ -10,6 +10,9 @@ u"""X11 属性微调（ctypes 直连 libX11，无第三方依赖）。
    _NET_WM_STATE_SKIP_TASKBAR + _NET_WM_STATE_SKIP_PAGER。
 
 拿不到 X11（非 X 环境）时所有函数静默返回 False，调用方回退到 Qt 原生方案。
+
+读窗口属性时会先确认窗口句柄有效：Xlib 的默认错误处理器遇到 BadWindow 会
+直接打印错误并 **exit(1)**，进程就这么没了；这里装一个自己的处理器把它吞掉。
 """
 import ctypes
 
@@ -57,6 +60,28 @@ def _load():
 
 _LIB = _load()
 
+# Xlib 的错误处理器是进程级的回调：不接管的话，BadWindow 这类异步错误会让
+# Xlib 打印 "X Error of failed request" 并直接 exit(1)。我们只关心"改成功了
+# 没有"，错误交给返回值判断，所以这里装一个返回 0 的空处理器。
+_ERR_CB = None
+
+
+def _quieten(lib):
+    global _ERR_CB
+    if lib is None or _ERR_CB is not None:
+        return
+    try:
+        proto = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+        lib.XSetErrorHandler.restype = ctypes.c_void_p
+        lib.XSetErrorHandler.argtypes = [ctypes.c_void_p]
+        _ERR_CB = proto(lambda dpy, ev: 0)      # 必须留引用，否则被回收
+        lib.XSetErrorHandler(_ERR_CB)
+    except Exception:
+        _ERR_CB = None
+
+
+_quieten(_LIB)
+
 
 def available():
     return _LIB is not None
@@ -95,23 +120,27 @@ class _Dpy(object):
         return self._cache[name]
 
     def get_state(self, wid):
-        """读取窗口当前 _NET_WM_STATE 的 atom 集合。"""
-        if not self.dpy:
-            return set()
+        """读取窗口 _NET_WM_STATE，返回 (窗口是否有效, atom 集合)。
+
+        XGetWindowProperty 对无效窗口会同步返回 BadWindow，可据此判断句柄
+        还活着没有——离屏 / 窗口已销毁时不要再去写属性。
+        """
+        if not self.dpy or not wid or int(wid) <= 0:
+            return False, set()
         actual_type = ctypes.c_ulong(0)
         fmt = ctypes.c_int(0)
         nitems = ctypes.c_ulong(0)
         after = ctypes.c_ulong(0)
         prop = ctypes.POINTER(ctypes.c_ubyte)()
         try:
-            self.lib.XGetWindowProperty(
+            ret = self.lib.XGetWindowProperty(
                 self.dpy, ctypes.c_ulong(wid), self.atom(_STATE),
                 0, 1024, 0, _XA_ATOM,
                 ctypes.byref(actual_type), ctypes.byref(fmt),
                 ctypes.byref(nitems), ctypes.byref(after),
                 ctypes.byref(prop))
         except Exception:
-            return set()
+            return False, set()
         out = set()
         try:
             if prop and nitems.value and fmt.value == 32:
@@ -125,7 +154,7 @@ class _Dpy(object):
                 self.lib.XFree(prop)
         except Exception:
             pass
-        return out
+        return ret == 0, out
 
     def set_atoms(self, wid, atoms):
         """整体替换 _NET_WM_STATE。"""
@@ -149,7 +178,9 @@ def state_names(wid):
         with _Dpy() as d:
             if not d:
                 return set()
-            have = d.get_state(wid)
+            ok, have = d.get_state(wid)
+            if not ok:
+                return set()
             out = set()
             for short, full in _NAMES.items():
                 if d.atom(full) in have:
@@ -167,7 +198,9 @@ def set_state(wid, add=(), remove=()):
         with _Dpy() as d:
             if not d:
                 return False
-            cur = d.get_state(wid)
+            ok, cur = d.get_state(wid)
+            if not ok:
+                return False        # 窗口不存在 / 不在 X 显示上
             for name in remove:
                 cur.discard(d.atom(_NAMES[name]))
             for name in add:

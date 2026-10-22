@@ -1,11 +1,11 @@
 # 桌面悬浮日历
 
-一个面向 **UOS / 飞腾 D3000（aarch64）** 的原生桌面日历：半透明悬浮在桌面上，带农历、法定节假日、待办与提醒，无登录、无会员、无联网请求。
+一个面向 **UOS / 飞腾 D3000（aarch64）** 的原生桌面日历：半透明悬浮在桌面上，带农历、法定节假日、待办与提醒。无登录、无会员、无广告；唯一的联网行为是**检查更新**（默认每天一次，可在设置里关掉）。
 
 - 语言：Python 3 + PyQt5
 - 架构：aarch64（LoongArch / x86 只需重新打包，代码无架构相关分支）
 - 许可：MIT
-- 当前版本：**1.3.3.0**
+- 当前版本：**1.4.0.0**
 
 ![主界面](screenshots/main.png)
 
@@ -13,19 +13,19 @@
 
 | 版本 | 安装包 | 平台 |
 |---|---|---|
-| v1.3.3.0 | [desktop-calendar_1.3.3.0_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/03cf19b1224cc60cf9df0809c191e89bae333ebe/releases/desktop-calendar_1.3.3.0_arm64.deb) | UOS / 飞腾 aarch64 |
+| v1.4.0.0 | [desktop-calendar_1.4.0.0_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/a2145533aac2ab6ab5f4de01259a71aa50537217/releases/desktop-calendar_1.4.0.0_arm64.deb) | UOS / 飞腾 aarch64 |
 
-安装包也放在仓库的 [`releases/`](releases/) 目录中，可在网页端点开目录后右上角直接下载。
+安装包也放在仓库的 [`releases/`](releases/) 目录中，可在网页端点开目录后右上角直接下载。已安装旧版的用户不必手动下载：**软件会自己检查更新并安装**（见下文）。
 
 命令行下载：
 
 ```bash
 wget -O desktop-calendar.deb \
-  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/03cf19b1224cc60cf9df0809c191e89bae333ebe/releases/desktop-calendar_1.3.3.0_arm64.deb
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/a2145533aac2ab6ab5f4de01259a71aa50537217/releases/desktop-calendar_1.4.0.0_arm64.deb
 sudo dpkg -i desktop-calendar.deb
 ```
 
-> 每个版本的安装包地址随文件内容变化，升级后请以 `releases/` 目录中的最新版本为准。
+> GitCode 不支持 `raw/分支/路径` 这种直链，只能用 `raw.gitcode.com/<owner>/<repo>/blobs/<文件 blob sha>/<路径>`；文件一改 sha 就变，所以每个版本的地址都不同。机器可读的版本清单在 [`releases/latest.json`](releases/latest.json)（构建时由 `make_manifest.py` 生成，含 sha256 与直链），软件的检查更新就读它。
 
 ---
 
@@ -67,6 +67,16 @@ sudo dpkg -i desktop-calendar.deb
 - 安装后自动在用户桌面创建快捷方式
 - `deb` 遵循 UOS 应用规范，安装到 `/opt/apps/com.desktop.calendar/`
 
+### 检查更新
+- 数据源是 GitCode 公开仓库里的版本清单，**只读公开数据，不需要账号或令牌**
+- 频率**默认每天检查一次**，设置里可改为每周 / 每月 / 仅手动；选「仅手动」后平时零联网
+- 选项设置里有与「基础设置」「背景设置」同级的**独立「检查更新」页签**：看频率、看上次检查时间、点「立即检查」、跳转项目主页
+- 发现新版本时弹出提示，附更新说明，可选 **立即更新 / 稍后再说 / 跳过此版本**（跳过只针对这一个版本，下个版本照常提示）
+- 后台静默检查不打扰：没新版本、查不到（断网等）都只是安静记一条日志
+- 点「立即更新」后**自动下载安装包**：自绘进度条、可取消，下载完校验体积、deb 包头与 sha256
+- 校验通过后调用系统安装器安装：优先 UOS 自带的 `deepin-deb-installer`，其次 `pkexec apt-get` / `dpkg`；装好可一键重启日历
+- 命令行也能自检：`desktop-calendar --check-update`
+
 ---
 
 ## 目录结构
@@ -74,11 +84,13 @@ sudo dpkg -i desktop-calendar.deb
 ```
 .
 ├── brl/                    主程序包
-│   ├── __main__.py         入口（含 --set-autostart / --make-desktop-icon 维护参数）
+│   ├── __main__.py         入口（含 --set-autostart / --make-desktop-icon / --check-update）
 │   ├── appctx.py           应用上下文、托盘、自启动、桌面图标
 │   ├── mainwin.py          主窗口：布局、主题应用、提醒检查、锁定
 │   ├── caltable.py         日历表格绘制（格子、待办、节日）
-│   ├── settings.py         选项设置对话框
+│   ├── settings.py         选项设置对话框（基础 / 背景 / 检查更新）
+│   ├── update.py           检查更新：版本比较、清单拉取、下载校验、调用安装器
+│   ├── updatedlg.py        更新相关界面：提示、下载进度、忙碌弹层
 │   ├── colorpick.py        自制取色盘
 │   ├── timepick.py         仿 iOS 滚轮时间选择
 │   ├── todo.py             待办清单与编辑对话框
@@ -88,7 +100,8 @@ sudo dpkg -i desktop-calendar.deb
 │   ├── data.py  store.py  defaults.py  x11fix.py
 │   └── resources/icons/    自制扁平图标（17 个）
 ├── makedeb.py              打包脚本：生成 aarch64 deb
-├── verify7..verify18.py    回归验证脚本
+├── make_manifest.py        生成 releases/latest.json 版本清单（含 sha256 与 blob 直链）
+├── verify7..verify19.py    回归验证脚本
 ├── selftest.py             数据与自检
 ├── e2e_autostart.py        自启动端到端测试
 ├── lint_aliases.py         别名/命名一致性检查
@@ -104,7 +117,7 @@ sudo dpkg -i desktop-calendar.deb
 - PyQt5（`python3-pyqt5`）
 - 打包需要：`dpkg-deb`、`fakeroot`
 
-程序**没有任何网络请求**，也不使用除 Qt 之外的第三方库。
+程序不使用除 Qt 之外的第三方库；联网只用 Python 标准库（`urllib`），只为检查更新，且可关闭。
 
 ---
 
@@ -112,10 +125,11 @@ sudo dpkg -i desktop-calendar.deb
 
 ```bash
 cd <本目录>
-python3 makedeb.py
+python3 makedeb.py            # 生成 deb
+python3 make_manifest.py      # 生成 releases/latest.json（版本清单）
 ```
 
-产物在 `dist/desktop-calendar_<版本>_arm64.deb`。
+产物在 `dist/desktop-calendar_<版本>_arm64.deb`。发布顺序：先把 deb 放到 `releases/`，再跑 `make_manifest.py`，然后把 deb、清单、README、CHANGELOG 一起提交——清单里的下载直链依赖 deb 的 blob sha，三者必须同一次提交。
 
 > 打包脚本使用持久化的 `dist/stage` 暂存目录。如果删除过源码里的资源文件，请先 `rm -rf dist/stage` 再打包，否则旧文件会混进新包。
 
@@ -126,7 +140,7 @@ python3 makedeb.py
 ## 安装
 
 ```bash
-sudo dpkg -i desktop-calendar_1.3.3.0_arm64.deb
+sudo dpkg -i desktop-calendar_1.4.0.0_arm64.deb
 ```
 
 安装过程中会弹出两次询问（是否开机自启、是否立即运行），可用图形界面点选，也可直接关闭跳过。
@@ -147,6 +161,7 @@ sudo dpkg -r desktop-calendar
 |---|---|
 | 配置 | `~/.config/desktop-calendar/calendar.ini` |
 | 待办数据 / 日志 | `~/.local/share/desktop-calendar/` |
+| 更新缓存（下载的安装包） | `~/.local/share/desktop-calendar/updates/` |
 | 开机自启 | `~/.config/autostart/com.desktop.calendar.desktop` |
 | 安装位置 | `/opt/apps/com.desktop.calendar/` |
 
@@ -158,13 +173,13 @@ sudo dpkg -r desktop-calendar
 
 ```bash
 for f in verify7 verify8 verify9 verify11 verify12 verify13 verify14 \
-         verify15 verify16 verify17 verify18; do python3 $f.py; done
+         verify15 verify16 verify17 verify18 verify19; do python3 $f.py; done
 python3 selftest.py
 python3 e2e_autostart.py
 python3 lint_aliases.py
 ```
 
-合计 300 余项断言，覆盖界面、待办、提醒、主题、取色、打包、安装脚本、X11 窗口行为等。
+合计 360 余项断言，覆盖界面、待办、提醒、主题、取色、更新、打包、安装脚本、X11 窗口行为等。
 
 各脚本职责：
 
@@ -181,6 +196,7 @@ python3 lint_aliases.py
 | verify16 | 时间盘与提醒弹窗 |
 | verify17 | 安装流程、改名、桌面图标、版本一致性 |
 | verify18 | 取色盘、锁定贴底、任务栏隐藏、托盘行为 |
+| verify19 | 检查更新：版本比较、频率、清单解析、下载校验、安装调用、设置页签 |
 | selftest | 农历/节假日/主题/存储等数据层自检 |
 | e2e_autostart | 开机自启端到端 |
 

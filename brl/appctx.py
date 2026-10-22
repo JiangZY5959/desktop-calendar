@@ -215,6 +215,7 @@ class Context(object):
         m.addAction(u'显示日历', self.show_main)
         m.addSeparator()
         m.addAction(u'选项设置', lambda: self.win.open_settings())
+        m.addAction(u'检查更新', lambda: self.win.check_updates(False))
         m.addSeparator()
         m.addAction(u'退出', self.quit)
         self.tray.setContextMenu(m)
