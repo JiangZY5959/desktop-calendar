@@ -75,10 +75,86 @@ def make_desktop_icon(src=None):
         return False
 
 
+def migrate_ini_group(path):
+    """把老版本写进 [%General] 的设置搬到 [app] 段。
+
+    QSettings 写 'general/xxx' 时，ini 里落的却是 [%General]（Qt 的转义
+    写法）；下次启动再按 'general/xxx' 去读又是空的——这正是「每次打开
+    都弹一遍开机自启」的根因。键已改为 app/*，这里把老数据搬过去，
+    免得用户之前勾过的开机自启丢掉。
+    返回是否真的改动过文件。
+    """
+    OLD = ('%General', 'General')
+    try:
+        if not os.path.exists(path):
+            return False
+        with open(path, 'r') as f:
+            txt = f.read()
+    except IOError:
+        return False
+    if not any('[%s]' % g in txt for g in OLD):
+        return False
+
+    order, body, cur = [], {}, None
+    for line in txt.splitlines():
+        s = line.strip()
+        if s.startswith('[') and s.endswith(']'):
+            cur = s[1:-1]
+            if cur not in body:
+                order.append(cur)
+                body[cur] = []
+            continue
+        if cur is None or '=' not in s:
+            continue
+        k = s.split('=', 1)[0]
+        body[cur] = [r for r in body[cur] if r.split('=', 1)[0] != k]
+        body[cur].append(s)
+
+    moved = []
+    for g in OLD:
+        if g not in body:
+            continue
+        for row in body.pop(g):
+            k = row.split('=', 1)[0]
+            if k not in ('autostart', 'autostart_asked'):
+                continue
+            body.setdefault('app', [])
+            if not any(r.split('=', 1)[0] == k for r in body['app']):
+                body['app'].append(row)
+                moved.append(k)
+        order = [s for s in order if s != g]
+    if 'app' not in order:
+        order.insert(0, 'app')
+    if not moved:
+        return False
+
+    out = []
+    for sec in order:
+        rows = body.get(sec)
+        if not rows:
+            continue
+        out.append('[%s]' % sec)
+        out.extend(rows)
+        out.append('')
+    try:
+        with open(path, 'w') as f:
+            f.write('\n'.join(out).rstrip('\n') + '\n')
+    except IOError:
+        return False
+    return True
+
+
 def apply_autostart(store, want=None):
-    """写入或移除开机自启项；返回是否处于自启动状态。"""
+    """写入或移除开机自启项；返回是否处于自启动状态。
+
+    want 为 None（启动时同步）且配置里没记过这个选项时，保持现状不动：
+    宁可漏建，也不能把用户自己建好的自启动项删掉。
+    """
     if want is None:
-        want = str(store.settings().value('general/autostart', '0')) == '1'
+        v = store.settings().value('app/autostart', None)
+        if v is None:
+            return os.path.exists(autostart_path())
+        want = str(v) == '1'
     path = autostart_path()
     try:
         if not want:
@@ -195,8 +271,10 @@ class Context(object):
 
     # ------------------------------------------------ 启动
     def start(self):
-        # 先规整配置文件（消除历史遗留的重复段），再读取设置
-        normalize_ini(os.path.join(D.config_dir(), 'calendar.ini'))
+        # 先规整配置文件（消除历史遗留的重复段、搬走老组），再读取设置
+        _ini = os.path.join(D.config_dir(), 'calendar.ini')
+        normalize_ini(_ini)
+        migrate_ini_group(_ini)
         st = self.store.settings()
         self.win = MainWindow(self.store, self)
         self.win.restore_pos()
@@ -269,6 +347,14 @@ class Context(object):
         try:
             st = self.store.settings()
             st.sync()
+        except Exception:
+            pass
+        # 兜底：只要用户真的用过一次（不管安装时有没有问成），
+        # 就记下"开机自启已经问过"，免得下次启动又弹一次。
+        # 用户要的是只有首次安装问一次，升级、退出重开都不该再问。
+        try:
+            from . import askinstall as AI
+            AI.mark_asked()
         except Exception:
             pass
         try:

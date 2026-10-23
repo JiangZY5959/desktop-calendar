@@ -184,7 +184,7 @@ def asked_before():
     """这个用户是不是已经被问过开机自启了（升级包时不再打扰）。"""
     try:
         st = _new_settings()
-        return str(st.value('general/autostart_asked') or '0') == '1'
+        return str(st.value('app/autostart_asked') or '0') == '1'
     except Exception:
         return False
 
@@ -192,7 +192,7 @@ def asked_before():
 def mark_asked():
     try:
         st = _new_settings()
-        st.setValue('general/autostart_asked', 1)
+        st.setValue('app/autostart_asked', 1)
         st.sync()
     except Exception:
         pass

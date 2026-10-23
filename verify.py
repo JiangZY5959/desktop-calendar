@@ -37,6 +37,7 @@ SECTIONS = [
     ('v18', '取色盘与X11窗口行为'),
     ('v19', '检查更新'),
     ('v20', '升级保护与重启'),
+    ('v21', '询问时机与关于窗口'),
     ('data', '数据层自检'),
     ('e2e', '自启动端到端'),
     ('lint', '命名一致性'),
@@ -343,7 +344,7 @@ settings = st.settings()
 
 # ---------- ② 勾选开机启动 → 立刻生成自启动文件
 ck('②.初始无自启动文件', not os.path.exists(AC.autostart_path()))
-settings.setValue('general/autostart', '1')
+settings.setValue('app/autostart', '1')
 settings.sync()
 AC.apply_autostart(st)
 p = AC.autostart_path()
@@ -358,7 +359,7 @@ if os.path.exists(p):
     ck('②.含 GNOME/Deepin 自启标记',
        'X-GNOME-Autostart-enabled=true' in txt and 'X-Deepin-Vendor' in txt)
 # 取消勾选 → 删除
-settings.setValue('general/autostart', '0')
+settings.setValue('app/autostart', '0')
 settings.sync()
 AC.apply_autostart(st)
 ck('②.取消勾选后移除', not os.path.exists(p))
@@ -445,7 +446,7 @@ if os.path.exists(AST):
     os.remove(AST)
 
 # 模拟用户勾选
-st.setValue('general/autostart', '1')
+st.setValue('app/autostart', '1')
 appctx.apply_autostart(_store, True)
 ck('勾选后文件生成', os.path.exists(AST), AST)
 if os.path.exists(AST):
@@ -460,12 +461,12 @@ if os.path.exists(AST):
     ck('可执行位', os.access(AST, os.X_OK), mode)
 
 # 模拟用户取消勾选
-st.setValue('general/autostart', '0')
+st.setValue('app/autostart', '0')
 appctx.apply_autostart(_store, False)
 ck('取消后文件删除', not os.path.exists(AST))
 
 # 恢复勾选态（保留用户可能的设置，最后写成"已勾选"便于用户直接验证）
-st.setValue('general/autostart', '0')
+st.setValue('app/autostart', '0')
 st.sync()
 
 print('== ③ 配置重复段归并')
@@ -1458,8 +1459,8 @@ ck('默认外边框全透明', str(st2.value('color/borderout')) == '#00FFFFFF')
 ck('默认内边框 = #27FFFFFF', str(st2.value('color/borderin')) == '#27FFFFFF')
 ck('默认网格线开启', str(st2.value('cal/showline')) == '1')
 ck('开机自启默认按 0 处理（不写入 general 组，避免重复段）',
-   'general/autostart' not in DF.DEFAULTS
-   and str(st2.value('general/autostart', '0')) == '0')
+   'app/autostart' not in DF.DEFAULTS
+   and str(st2.value('app/autostart', '0')) == '0')
 ck('txtclr 留空（跟随主题）',
    st2.value('color/txtclr') in (None, ''), repr(st2.value('color/txtclr')))
 # 用户改过的值不能被默认覆盖
@@ -2064,7 +2065,7 @@ _real_ad = AI.AskDialog
 _real_dok = AI.X11.display_ok
 AI.AskDialog = _FakeDlg
 AI.X11.display_ok = lambda d=None: True      # 假装能弹窗（离屏连不上 X）
-AI._new_settings().setValue('general/autostart_asked', 0)
+AI._new_settings().setValue('app/autostart_asked', 0)
 AI._new_settings().sync()
 _env_disp = os.environ.pop('DISPLAY', None)
 try:
@@ -2930,6 +2931,163 @@ sys.exit(1 if bad else 0)
 # ===== [END SECTION] =====
 
 
+# ===== [SECTION v21] 询问时机与关于窗口 =====
+# -*- coding: utf-8 -*-
+"""第 25 轮专项验证：开机自启只在首次安装问一次 + 齿轮菜单瘦身 + 关于窗口。
+
+覆盖：
+  ① 询问时机：全新会问、问过不再问、升级装完不再问、退出重开不再问
+  ② 齿轮菜单：不再有「调整日期和时间 / 同步时间」
+  ③ 关于窗口：作者 JiangZY、项目主页可点、设置页不再重复放主页
+"""
+import os
+import sys
+import tempfile
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import brltest_env as _ENV
+_ENV.isolate('v21')
+
+ok, bad = [], []
+
+
+def ck(name, cond, extra=''):
+    (ok if cond else bad).append(name)
+    print(('PASS ' if cond else 'FAIL ') + name + ('  ' + str(extra) if extra else ''))
+
+
+# HOME 也要隔离：askinstall 的配置目录跟着 HOME/XDG 走
+TD = tempfile.mkdtemp(prefix='v21-')
+os.environ['HOME'] = os.path.join(TD, 'home')
+os.makedirs(os.environ['HOME'])
+
+from brl import askinstall as AI          # noqa: E402
+
+# ---------------------------------------------------------------- ① 询问时机
+ck('①1 全新安装时还没问过', not AI.asked_before())
+AI.mark_asked()
+ck('①2 问过一次后不再问', AI.asked_before())
+# 换一个全新的 QSettings 实例读（模拟"退出后重新打开"）
+ck('①3 重启后仍记得已问过', AI.asked_before())
+
+# 打包脚本：升级（$2 非空）也要打标记，否则老用户升级后首启会被补问
+import makedeb as MD                      # noqa: E402
+
+_up = MD.POSTINST[MD.POSTINST.index('AUTO=0'):MD.POSTINST.index('if [ "$AUTO" = "1" ]')]
+ck('①4 升级路径也会打标记', 'NEED_MARK=1' in _up)
+ck('①5 打标记的命令在脚本里', '--mark-asked' in MD.POSTINST)
+# 升级路径不能反过来去弹窗
+_i_up = _up.index('if [ -n "$2" ]')
+_i_ask = _up.index('--ask-install')
+ck('①6 升级时不弹询问窗', _i_up < _i_ask and 'ASKED=1' in _up)
+
+# 软件退出时兜底打标记：哪怕安装时没问成，用过一次也别再烦用户
+_ctx = open(os.path.join(HERE, 'brl', 'appctx.py'), encoding='utf-8').read()
+_i_quit = _ctx.index('def quit(')
+ck('①7 退出时兜底标记已问过',
+   'mark_asked()' in _ctx[_i_quit:])
+
+# 首启补问：问过就跳过，且弹过之后无论如何都会落标记
+_mw = open(os.path.join(HERE, 'brl', 'mainwin.py'), encoding='utf-8').read()
+_i_once = _mw.index('def _ask_autostart_once(')
+_once = _mw[_i_once:_mw.index('def _screen(', _i_once)]
+ck('①8 补问前先看是否问过', 'asked_before()' in _once)
+ck('①9 补问后一定落标记', 'mark_asked()' in _once)
+ck('①10 只在真安装路径补问', 'self._installed()' in _once
+   and "'/opt/apps'" in _mw)
+
+# 键名必须跨进程一致：Qt 写 general/* 会落成 [%General] 段，
+# 下次启动再按 general/* 读就是空的——"每次打开都问一遍"就是这么来的。
+import glob as _glob                      # noqa: E402
+
+_bad_keys = []
+for _f in _glob.glob(os.path.join(HERE, 'brl', '*.py')):
+    # 注释/docstring 里提到这段历史是允许的，只要不再真的去读写它
+    if 'general/autostart' in open(_f, encoding='utf-8').read():
+        _bad_keys.append(os.path.basename(_f))
+ck('①11 源码不再用 general/ 键', not _bad_keys, _bad_keys)
+ck('①12 自启用 app/autostart', "'app/autostart'" in _ctx)
+ck('①13 询问标记用 app/autostart_asked',
+   "'app/autostart_asked'" in open(
+       os.path.join(HERE, 'brl', 'askinstall.py'), encoding='utf-8').read())
+
+# 老配置迁移：[%General] 里的值要搬到 [app]，且只能搬一次
+from brl import appctx as AX              # noqa: E402
+
+TD2 = tempfile.mkdtemp(prefix='v21-mig-')
+INI2 = os.path.join(TD2, 'calendar.ini')
+with open(INI2, 'w') as f:
+    f.write('[%General]\nautostart=1\nautostart_asked=1\n\n[ui]\ntheme=3\n')
+ck('①14 老配置会被迁移', AX.migrate_ini_group(INI2))
+ck('①15 迁移后只剩 [app] 段', '[%General]' not in open(INI2).read())
+ck('①16 迁移保留原值',
+   'autostart=1' in open(INI2).read()
+   and 'autostart_asked=1' in open(INI2).read())
+ck('①17 迁移不影响其它段', 'theme=3' in open(INI2).read())
+ck('①18 重复迁移不再改动', not AX.migrate_ini_group(INI2))
+# 启动时若配置没记过自启，不能把用户自己的自启动项删掉
+_i_apply = _ctx.index('def apply_autostart(')
+_apply = _ctx[_i_apply:_ctx.index('def migrate_ini_group(')
+             if _ctx.index('def migrate_ini_group(') > _i_apply
+             else _i_apply + 1200]
+ck('①19 没记过时不删已有自启项',
+   'autostart_path()' in _apply and 'v is None' in _apply)
+
+# ---------------------------------------------------------------- ② 齿轮菜单
+_i_menu = _mw.index('def _menu(')
+_menu = _mw[_i_menu:_mw.index('def _auto_update(', _i_menu)]
+ck('②1 菜单无「调整日期和时间」', u'调整日期和时间' not in _menu)
+ck('②2 菜单无「同步时间」', u'同步时间' not in _menu)
+ck('②3 菜单保留检查更新', u'检查更新' in _menu)
+ck('②4 菜单保留选项设置', u'选项设置' in _menu)
+ck('②5 菜单保留关于', u'关于' in _menu)
+ck('②6 菜单保留退出', u'退出软件' in _menu)
+ck('②7 旧的两个处理函数已删除',
+   '_open_datetime' not in _mw and '_sync_time' not in _mw)
+
+# ---------------------------------------------------------------- ③ 关于窗口
+ck('③1 关于窗口已独立实现', 'class AboutDialog' in _mw)
+ck('③2 关于里写了作者 JiangZY', 'JiangZY' in _mw)
+ck('③3 关于里有项目主页链接', 'QDesktopServices.openUrl' in _mw)
+ck('③4 关于里带 GitCode 与 GitHub 两处',
+   'gitcode' in _mw.lower() and 'github' in _mw.lower())
+ck('③5 关于窗口固定浅色底', "'#F2F6FC'" in _mw)
+_i_ab = _mw.index('class AboutDialog')
+_ab = _mw[_i_ab:_mw.index('class RemindPopup')]
+ck('③6 关于里显示版本号', 'APP_VER' in _ab)
+
+_st = open(os.path.join(HERE, 'brl', 'settings.py'), encoding='utf-8').read()
+ck('③7 设置页不再放项目主页', u'项目主页' not in _st)
+ck('③8 设置页保留检查更新页签', u'检查更新' in _st)
+
+# 真的把窗口建出来，确认不发黑、内容齐全
+from PyQt5.QtWidgets import QApplication     # noqa: E402
+
+_app = QApplication.instance() or QApplication(sys.argv[:1])
+from brl.mainwin import AboutDialog          # noqa: E402
+
+from PyQt5.QtWidgets import QLabel, QPushButton   # noqa: E402
+
+dlg = AboutDialog()
+_txt = ' '.join(w.text() for w in dlg.findChildren(QLabel))
+_txt += ' ' + ' '.join(w.text() for w in dlg.findChildren(QPushButton))
+ck('③9 关于窗能正常构建', dlg.width() > 300 and dlg.height() > 200,
+   '%dx%d' % (dlg.width(), dlg.height()))
+ck('③10 关于窗含作者与版本', 'JiangZY' in _txt and 'v' in _txt)
+ck('③11 关于窗含主页入口', 'GitCode' in _txt)
+
+print()
+print('结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))
+if bad:
+    print('未通过:')
+    for n in bad:
+        print(' - ' + n)
+sys.exit(1 if bad else 0)
+# ===== [END SECTION] =====
+
+
 # ===== [SECTION data] 数据层自检 =====
 # -*- coding: utf-8 -*-
 """无头自测：核心逻辑 + 界面构建 + 离屏截图"""
@@ -3080,7 +3238,7 @@ sys.exit(1 if fails else 0)
 """端到端验证开机自启：勾选 → 生成 → 桌面环境能拉起。
 
 用法: DISPLAY=:0 python3 e2e_autostart.py
-会临时把 general/autostart 置 1 写出文件，验证后还原为 0 并清理。
+会临时把 app/autostart 置 1 写出文件，验证后还原为 0 并清理。
 """
 import os
 import sys
@@ -3105,7 +3263,7 @@ if not os.path.isdir(BAD):
 
 _s = store.Store()
 st = _s.settings()
-old = st.value('general/autostart', '0')
+old = st.value('app/autostart', '0')
 
 ok = True
 
@@ -3117,10 +3275,10 @@ def step(name, cond, extra=''):
         ok = False
 
 
-print('原配置 general/autostart =', old)
+print('原配置 app/autostart =', old)
 
 print('== 1. 勾选后立即写入')
-st.setValue('general/autostart', '1')
+st.setValue('app/autostart', '1')
 st.sync()
 appctx.apply_autostart(_s, True)
 step('文件已生成', os.path.exists(AST), AST)
@@ -3179,11 +3337,11 @@ else:
         step('拉起流程无异常', False, str(e))
 
 print('== 4. 还原用户配置')
-st.setValue('general/autostart', '0')
+st.setValue('app/autostart', '0')
 st.sync()
 appctx.apply_autostart(_s, False)
 step('取消后文件移除', not os.path.exists(AST))
-step('配置已还原', st.value('general/autostart', '0') == '0')
+step('配置已还原', st.value('app/autostart', '0') == '0')
 
 print('')
 print('端到端结果: %s' % ('全部通过' if ok else '存在失败项'))

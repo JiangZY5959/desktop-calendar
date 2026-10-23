@@ -5,7 +5,7 @@
 - 语言：Python 3 + PyQt5
 - 架构：aarch64（LoongArch / x86 只需重新打包，代码无架构相关分支）
 - 许可：MIT
-- 当前版本：**1.4.1.0**
+- 当前版本：**1.4.2.0**
 - 仓库：[GitHub](https://github.com/JiangZY5959/desktop-calendar) ｜ 国内镜像 [GitCode](https://gitcode.com/gcw_6ciOFeue/desktop-calendar)（**两处同步更新**，GitHub Release 附件下载更方便）
 
 ![主界面](screenshots/main.png)
@@ -14,8 +14,8 @@
 
 | 来源 | 安装包 | 平台 |
 |---|---|---|
-| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.1.0_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.1.0/desktop-calendar_1.4.1.0_arm64.deb) | UOS / 飞腾 aarch64 |
-| GitCode 直链（国内） | [desktop-calendar_1.4.1.0_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/c247f04c4a5845b50d2cf21e0eef8552f95858b1/releases/desktop-calendar_1.4.1.0_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.2.0_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.2.0/desktop-calendar_1.4.2.0_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitCode 直链（国内） | [desktop-calendar_1.4.2.0_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/2fb019354baa6eae4983675c9191d209dfdd9b01/releases/desktop-calendar_1.4.2.0_arm64.deb) | UOS / 飞腾 aarch64 |
 
 也可以在 GitHub 的 [Releases 页面](https://github.com/JiangZY5959/desktop-calendar/releases) 直接点附件下载。
 
@@ -26,12 +26,12 @@
 ```bash
 # GitHub
 wget -O desktop-calendar.deb \
-  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.1.0/desktop-calendar_1.4.1.0_arm64.deb
+  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.2.0/desktop-calendar_1.4.2.0_arm64.deb
 sudo dpkg -i desktop-calendar.deb
 
 # 或 GitCode（国内更快）
 wget -O desktop-calendar.deb \
-  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/c247f04c4a5845b50d2cf21e0eef8552f95858b1/releases/desktop-calendar_1.4.1.0_arm64.deb
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/2fb019354baa6eae4983675c9191d209dfdd9b01/releases/desktop-calendar_1.4.2.0_arm64.deb
 sudo dpkg -i desktop-calendar.deb
 ```
 
@@ -91,7 +91,7 @@ sudo dpkg -i desktop-calendar.deb
 - 数据源是 **GitCode 公开仓库里的版本清单**（也可在上方的 GitHub Release 页面手动下载），**只读公开数据，不需要账号或令牌**
 - GitHub 与 GitCode 两处同时发布，内容完全一致；软件内置的主数据源是 GitCode 清单（国内访问更快），GitHub 作为手动下载的镜像
 - 频率**默认每天检查一次**，设置里可改为每周 / 每月 / 仅手动；选「仅手动」后平时零联网
-- 选项设置里有与「基础设置」「背景设置」同级的**独立「检查更新」页签**：看频率、看上次检查时间、点「立即检查」、跳转项目主页
+- 选项设置里有与「基础设置」「背景设置」同级的**独立「检查更新」页签**：看频率、看上次检查时间、点「立即检查」（项目主页入口在「关于」里）
 - 发现新版本时弹出提示，附更新说明，可选 **立即更新 / 稍后再说 / 跳过此版本**（跳过只针对这一个版本，下个版本照常提示）
 - 后台静默检查不打扰：没新版本、查不到（断网等）都只是安静记一条日志
 - 点「立即更新」后**自动下载安装包**：自绘进度条、可取消，下载完校验体积、deb 包头与 sha256
@@ -160,7 +160,7 @@ python3 make_manifest.py      # 生成 releases/latest.json（版本清单）
 ## 安装
 
 ```bash
-sudo dpkg -i desktop-calendar_1.4.1.0_arm64.deb
+sudo dpkg -i desktop-calendar_1.4.2.0_arm64.deb
 ```
 
 首次安装会弹出**一个**询问窗口（是否开机自启、是否立即运行）；**升级覆盖安装不询问**，并自动完成：备份用户数据 → 请旧版本保存退出 → 补齐缺失的数据 → 打开新版本。
@@ -218,6 +218,7 @@ python3 verify.py --list       # 列出分节
 | v18 | 取色盘、锁定贴底、任务栏隐藏、托盘行为（需真桌面 X11） |
 | v19 | 检查更新：版本比较、频率、清单解析、下载校验、安装调用、设置页签 |
 | v20 | 升级保护：备份恢复、旧路径迁移、进程识别、关旧开新端到端 |
+| v21 | 询问时机、配置键迁移、齿轮菜单、关于窗口 |
 | data | 农历/节假日/主题/存储等数据层自检 |
 | e2e | 开机自启端到端 |
 | lint | 别名/命名一致性 |

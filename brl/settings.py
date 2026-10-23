@@ -13,8 +13,8 @@
 import datetime
 import os
 
-from PyQt5.QtCore import Qt, pyqtSignal, QRectF, QPointF, QTimer, QUrl
-from PyQt5.QtGui import QPainter, QColor, QPen, QDesktopServices
+from PyQt5.QtCore import Qt, pyqtSignal, QRectF, QPointF, QTimer
+from PyQt5.QtGui import QPainter, QColor, QPen
 from PyQt5.QtWidgets import (QDialog, QWidget, QLabel, QPushButton, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QCheckBox, QComboBox,
                              QScrollArea, QFrame, QColorDialog, QStackedWidget,
@@ -372,7 +372,7 @@ class SettingsDialog(QDialog):
         gl.setContentsMargins(0, 0, 0, 0)
         gl.setHorizontalSpacing(30)
         gl.setVerticalSpacing(12)
-        gl.addWidget(chk('general/autostart', u'开机启动桌面日历'), 0, 0)
+        gl.addWidget(chk('app/autostart', u'开机启动桌面日历'), 0, 0)
         gl.addWidget(chk('cal/showweek', u'显示第几周'), 1, 0)
         gl.addWidget(chk('cal/showlunnar', u'显示农历', True), 1, 1)
         gl.addWidget(chk('cal/showjieri', u'显示节日', True), 2, 0)
@@ -609,28 +609,6 @@ class SettingsDialog(QDialog):
         hint.setWordWrap(True)
         hint.setStyleSheet('color:#8A8F99;font-size:12px;')
         lay.addWidget(hint)
-
-        lay.addSpacing(6)
-        sep2 = QFrame()
-        sep2.setFrameShape(QFrame.HLine)
-        sep2.setFixedHeight(1)
-        sep2.setStyleSheet('background:#E6E7E8;border:none;')
-        lay.addWidget(sep2)
-        row2 = QHBoxLayout()
-        row2.setSpacing(10)
-        row2.addWidget(QLabel(u'项目主页:'))
-        bpage = QPushButton(u'gitcode.com/gcw_6ciOFeue/desktop-calendar')
-        bpage.setCursor(Qt.PointingHandCursor)
-        bpage.setFlat(True)
-        bpage.setStyleSheet(
-            'QPushButton{background:transparent;border:none;color:#2F7BFF;'
-            'font-size:13px;text-align:left;}'
-            'QPushButton:hover{color:#4A8CFF;}')
-        bpage.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(U.PAGE)))
-        row2.addWidget(bpage)
-        row2.addStretch(1)
-        lay.addLayout(row2)
 
         lay.addStretch(1)
         self._stack.addWidget(page)

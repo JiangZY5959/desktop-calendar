@@ -3,11 +3,12 @@
 import os
 import datetime
 
-from PyQt5.QtCore import Qt, QTimer, QRectF, QRect, QSize
-from PyQt5.QtGui import QPainter, QColor, QPixmap, QCursor, QPen, QIcon, QFont
+from PyQt5.QtCore import Qt, QTimer, QRectF, QRect, QSize, QUrl
+from PyQt5.QtGui import (QPainter, QColor, QPixmap, QCursor, QPen, QIcon,
+                         QFont, QDesktopServices)
 from PyQt5.QtWidgets import (QWidget, QLabel, QPushButton, QHBoxLayout, QVBoxLayout,
                              QMenu, QSystemTrayIcon, QApplication, QDialog,
-                             QMessageBox, QSizeGrip, QFrame)
+                             QMessageBox, QSizeGrip, QFrame, QLayout)
 
 from . import data as D
 from . import theme as T
@@ -20,6 +21,138 @@ from .updatedlg import UpdateFlow
 from . import x11fix as X11
 
 from . import APP_NAME, APPID, __version__ as APP_VER
+
+
+class AboutDialog(QDialog):
+    """关于窗口：作者、项目主页、版本与简介。
+
+    底色固定用与选项设置一致的浅色卡片（#F2F6FC），不跟随日历主题，
+    免得用户把主题调深之后这里跟着变黑、看不清。
+    """
+
+    W, H = 420, 396
+
+    def __init__(self, parent=None):
+        QDialog.__init__(self, parent)
+        self.setWindowTitle(u'关于 %s' % APP_NAME)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setFixedSize(self.W, self.H)
+        try:
+            from . import update as U
+            page = U.PAGE
+        except Exception:
+            page = ''
+        gh = 'https://github.com/JiangZY5959/desktop-calendar'
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 18, 24, 16)
+        lay.setSpacing(0)
+
+        top = QHBoxLayout()
+        ttl = QLabel(u'关于 %s' % APP_NAME)
+        ttl.setStyleSheet('color:#202020;font-size:16px;font-weight:bold;')
+        top.addWidget(ttl)
+        top.addStretch(1)
+        bx = QPushButton(u'✕')
+        bx.setFixedSize(26, 26)
+        bx.setCursor(Qt.PointingHandCursor)
+        bx.setStyleSheet(
+            'QPushButton{background:transparent;border:none;'
+            'color:#8A8F99;font-size:15px;}'
+            'QPushButton:hover{background:#E8EDF5;border-radius:4px;'
+            'color:#202020;}')
+        bx.clicked.connect(self.accept)
+        top.addWidget(bx)
+        lay.addLayout(top)
+        lay.addSpacing(10)
+        lay.addWidget(self._sep())
+        lay.addSpacing(14)
+
+        lay.addLayout(self._row(u'版本', QLabel(u'v%s' % APP_VER)))
+        lay.addSpacing(8)
+        lay.addLayout(self._row(u'作者', QLabel(u'JiangZY')))
+        lay.addSpacing(8)
+        pages = QVBoxLayout()
+        pages.setSpacing(2)
+        if page:
+            pages.addWidget(self._link(page, u'GitCode（国内）'))
+        pages.addWidget(self._link(gh, u'GitHub'))
+        lay.addLayout(self._row(u'项目主页', pages))
+        lay.addSpacing(14)
+        lay.addWidget(self._sep())
+        lay.addSpacing(14)
+
+        intro = QLabel(
+            u'一款为 UOS / 飞腾（aarch64）打造的桌面日历小工具。\n\n'
+            u'· 月视图 / 周视图，农历、节气、节日、法定节假日与调休\n'
+            u'· 待办记事与定时提醒\n'
+            u'· 主题、颜色与透明度自由定制\n\n'
+            u'本地应用：无账号、无会员、无需登录，\n'
+            u'所有数据仅保存在本机 ~/.local/share/desktop-calendar/。')
+        intro.setWordWrap(True)
+        intro.setStyleSheet('color:#5A6069;font-size:13px;line-height:150%;')
+        lay.addWidget(intro)
+        lay.addStretch(1)
+
+        bot = QHBoxLayout()
+        bot.addStretch(1)
+        bok = QPushButton(u'确定')
+        bok.setFixedSize(88, 32)
+        bok.setCursor(Qt.PointingHandCursor)
+        bok.setStyleSheet(
+            'QPushButton{background:#FFFFFF;color:#202020;'
+            'border:1px solid #DCE0E6;border-radius:5px;font-size:13px;}'
+            'QPushButton:hover{background:#F5F8FF;border-color:#A9CDF7;}')
+        bok.clicked.connect(self.accept)
+        bot.addWidget(bok)
+        lay.addLayout(bot)
+
+    @staticmethod
+    def _sep():
+        f = QFrame()
+        f.setFrameShape(QFrame.HLine)
+        f.setFixedHeight(1)
+        f.setStyleSheet('background:#E6E7E8;border:none;')
+        return f
+
+    @staticmethod
+    def _row(label, widget):
+        h = QHBoxLayout()
+        h.setSpacing(10)
+        lb = QLabel(label)
+        lb.setFixedWidth(62)
+        lb.setStyleSheet('color:#8A8F99;font-size:13px;')
+        h.addWidget(lb)
+        if isinstance(widget, QLayout):
+            h.addLayout(widget, 1)
+        else:
+            widget.setStyleSheet('color:#202020;font-size:13px;')
+            h.addWidget(widget)
+        h.addStretch(1)
+        return h
+
+    @staticmethod
+    def _link(url, text):
+        b = QPushButton(text)
+        b.setCursor(Qt.PointingHandCursor)
+        b.setFlat(True)
+        b.setStyleSheet(
+            'QPushButton{background:transparent;border:none;color:#2F7BFF;'
+            'font-size:13px;text-align:left;padding:0 0 0 0;}'
+            'QPushButton:hover{color:#4A8CFF;}')
+        b.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
+        return b
+
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        T.paint_round(p, r, 10, '#F2F6FC')
+        p.setPen(QPen(QColor('#DCE0E6')))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(r, 10, 10)
+        p.end()
 
 
 class RemindPopup(QDialog):
@@ -258,7 +391,7 @@ class MainWindow(QWidget):
             auto, _run = ans
             from . import appctx as AX
             st = self._store.settings()
-            st.setValue('general/autostart', '1' if auto else '0')
+            st.setValue('app/autostart', '1' if auto else '0')
             st.sync()
             AX.apply_autostart(self._store)
             AI.mark_asked()
@@ -753,12 +886,6 @@ class MainWindow(QWidget):
 
     def _menu(self):
         m = QMenu(self)
-        st = self._store.settings()
-        a = m.addAction(u'调整日期和时间')
-        a.triggered.connect(self._open_datetime)
-        a = m.addAction(u'同步时间')
-        a.triggered.connect(self._sync_time)
-        m.addSeparator()
         m.addAction(u'检查更新', lambda: self.check_updates(False))
         m.addAction(u'选项设置', self.open_settings)
         m.addAction(u'关于', self._about)
@@ -794,7 +921,7 @@ class MainWindow(QWidget):
         self._apply_theme()
 
     def _on_setting(self, key, val):
-        if key == 'general/autostart':
+        if key == 'app/autostart':
             try:
                 self._ctx.apply_autostart()
             except Exception:
@@ -826,32 +953,6 @@ class MainWindow(QWidget):
                 line=str(st.value('cal/showline', '1')) == '1',
                 ban=str(st.value('cal/showban', '1')) == '1')
 
-    def _open_datetime(self):
-        import subprocess
-        for cmd in (['dde-control-center', '-s', 'datetime'],
-                    ['dde-control-center', 'datetime'],
-                    ['gnome-control-center', 'datetime'],
-                    ['ukui-control-center', '-t', 'datetime']):
-            try:
-                subprocess.Popen(cmd)
-                return
-            except OSError:
-                continue
-        QMessageBox.information(self, APP_NAME, u'未找到系统时间设置程序。')
-
-    def _sync_time(self):
-        QMessageBox.information(
-            self, APP_NAME,
-            u'请使用系统时间设置同步网络时间（控制中心 → 时间和日期 → 自动同步）。')
-
     def _about(self):
-        QMessageBox.about(
-            self, u'关于 %s' % APP_NAME,
-            u'%s  v%s\n\n'
-            u'一款为 UOS / 飞腾（aarch64）打造的桌面日历小工具。\n\n'
-            u'· 月视图 / 周视图，农历、节气、节日、法定节假日与调休\n'
-            u'· 待办记事与定时提醒\n'
-            u'· 主题与颜色、透明度自由定制\n\n'
-            u'本地应用：无账号、无会员、无需登录，\n'
-            u'所有数据仅保存在本机 ~/.local/share/desktop-calendar/。'
-            % (APP_NAME, APP_VER))
+        dlg = AboutDialog(self)
+        dlg.exec_()

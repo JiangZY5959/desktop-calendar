@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, 'brl')
 APPID = 'com.desktop.calendar'
 PKG = 'desktop-calendar'
-VER = '1.4.1.0'
+VER = '1.4.2.0'
 OUT = os.path.join(ROOT, 'dist')
 APP_NAME = u'桌面悬浮日历'
 
@@ -205,6 +205,9 @@ NEED_MARK=0
 if [ -n "$2" ]; then
     echo "upgrade: skip prompts" >>"$LOG" 2>/dev/null || true
     ASKED=1
+    # 升级同样要记"已经问过"：老版本装的时候还没这个标记，
+    # 补上之后首次启动就不会再拿开机自启来打扰用户。
+    NEED_MARK=1
 fi
 
 if [ "$ASKED" = "0" ]; then

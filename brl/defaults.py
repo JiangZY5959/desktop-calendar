@@ -17,9 +17,9 @@ DEFAULTS = {
     'ui/theme': 0,                # 玄夜
     'ui/show': 1,                 # 默认显示主窗口
 
-    # 注意：不要在这里写 general/autostart。老配置里这段写作 [%General]
-    # （Qt 转义写法），而代码读写的是 general/*，两者不是同一个组，
-    # 一旦写入就会在文件里多出一个重复段。不写了，读不到时按 0 处理即可。
+    # 注意：不要在这里写开机自启的默认值。老版本把它写进 [%General]（Qt
+    # 的转义写法，跨进程读不回来），现在统一用 app/autostart；没记过时
+    # 按"用户没表态"处理，既不建也不删（见 appctx.apply_autostart）。
 
     # 显示项
     'cal/showline': 1,            # 显示网格线

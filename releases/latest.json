@@ -1,10 +1,10 @@
 {
-  "version": "1.4.1.0",
-  "tag": "v1.4.1.0",
-  "file": "desktop-calendar_1.4.1.0_arm64.deb",
-  "size": 85180,
-  "sha256": "113c90073a13ef57bc75b093bd759043b843a5d8e174d4f4e11c5a08ea004c75",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/c247f04c4a5845b50d2cf21e0eef8552f95858b1/releases/desktop-calendar_1.4.1.0_arm64.deb",
-  "released": "2026-10-22",
-  "notes": "· 升级时保留老版本的待办与设置\n· 装完自动\"关旧开新\"\n· 进程识别只认日历本体\n· 单实例接管\n· 更新弹窗换肤\n· 更新完成后自动重启"
+  "version": "1.4.2.0",
+  "tag": "v1.4.2.0",
+  "file": "desktop-calendar_1.4.2.0_arm64.deb",
+  "size": 86296,
+  "sha256": "f04cb28323d6970dfd1312de5fa6ab2c9e17231958c2dac6b7d4c8c9208e236b",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/2fb019354baa6eae4983675c9191d209dfdd9b01/releases/desktop-calendar_1.4.2.0_arm64.deb",
+  "released": "2026-10-23",
+  "notes": "· 修复\"每次打开都问一遍开机自启\"\n· 询问时机收紧\n· 修复\"勾了开机自启却没生效\"\n· 齿轮菜单瘦身\n· 「项目主页」移到「关于」"
 }

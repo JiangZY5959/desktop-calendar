@@ -41,7 +41,7 @@ def _dispatch(argv):
         from . import appctx as A
         from . import store as S
         st = S.Store()
-        st.settings().setValue('general/autostart', '1' if want else '0')
+        st.settings().setValue('app/autostart', '1' if want else '0')
         st.settings().sync()
         state = A.apply_autostart(st)
         sys.stdout.write('autostart: %s\n' % ('on' if state else 'off'))
