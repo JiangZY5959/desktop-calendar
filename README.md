@@ -6,26 +6,36 @@
 - 架构：aarch64（LoongArch / x86 只需重新打包，代码无架构相关分支）
 - 许可：MIT
 - 当前版本：**1.4.1.0**
+- 仓库：[GitHub](https://github.com/JiangZY5959/desktop-calendar) ｜ 国内镜像 [GitCode](https://gitcode.com/gcw_6ciOFeue/desktop-calendar)（**两处同步更新**，GitHub Release 附件下载更方便）
 
 ![主界面](screenshots/main.png)
 
 ## 下载
 
-| 版本 | 安装包 | 平台 |
+| 来源 | 安装包 | 平台 |
 |---|---|---|
-| v1.4.1.0 | [desktop-calendar_1.4.1.0_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/c247f04c4a5845b50d2cf21e0eef8552f95858b1/releases/desktop-calendar_1.4.1.0_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.1.0_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.1.0/desktop-calendar_1.4.1.0_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitCode 直链（国内） | [desktop-calendar_1.4.1.0_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/c247f04c4a5845b50d2cf21e0eef8552f95858b1/releases/desktop-calendar_1.4.1.0_arm64.deb) | UOS / 飞腾 aarch64 |
 
-安装包也放在仓库的 [`releases/`](releases/) 目录中，可在网页端点开目录后右上角直接下载。已安装旧版的用户不必手动下载：**软件会自己检查更新并安装**（见下文）。
+也可以在 GitHub 的 [Releases 页面](https://github.com/JiangZY5959/desktop-calendar/releases) 直接点附件下载。
 
-命令行下载：
+安装包同时放在仓库的 [`releases/`](releases/) 目录中，可在网页端点开目录后右上角直接下载。已安装旧版的用户不必手动下载：**软件会自己检查更新并安装**（见下文）。
+
+命令行下载（二选一）：
 
 ```bash
+# GitHub
+wget -O desktop-calendar.deb \
+  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.1.0/desktop-calendar_1.4.1.0_arm64.deb
+sudo dpkg -i desktop-calendar.deb
+
+# 或 GitCode（国内更快）
 wget -O desktop-calendar.deb \
   https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/c247f04c4a5845b50d2cf21e0eef8552f95858b1/releases/desktop-calendar_1.4.1.0_arm64.deb
 sudo dpkg -i desktop-calendar.deb
 ```
 
-> GitCode 不支持 `raw/分支/路径` 这种直链，只能用 `raw.gitcode.com/<owner>/<repo>/blobs/<文件 blob sha>/<路径>`；文件一改 sha 就变，所以每个版本的地址都不同。机器可读的版本清单在 [`releases/latest.json`](releases/latest.json)（构建时由 `make_manifest.py` 生成，含 sha256 与直链），软件的检查更新就读它。
+> GitCode 不支持 `raw/分支/路径` 这种直链，只能用 `raw.gitcode.com/<owner>/<repo>/blobs/<文件 blob sha>/<路径>`；文件一改 sha 就变，所以每个版本的地址都不同。因此**推荐用上面的 GitHub 永久地址**。机器可读的版本清单在 [`releases/latest.json`](releases/latest.json)（构建时由 `make_manifest.py` 生成，含 sha256 与直链），软件的检查更新就读它。
 
 ---
 
@@ -78,7 +88,8 @@ sudo dpkg -i desktop-calendar.deb
 - 进程识别按"进程名 + 启动参数"精确匹配，正在装包的 dpkg、终端里的 shell 不会被误伤
 
 ### 检查更新
-- 数据源是 GitCode 公开仓库里的版本清单，**只读公开数据，不需要账号或令牌**
+- 数据源是 **GitCode 公开仓库里的版本清单**（也可在上方的 GitHub Release 页面手动下载），**只读公开数据，不需要账号或令牌**
+- GitHub 与 GitCode 两处同时发布，内容完全一致；软件内置的主数据源是 GitCode 清单（国内访问更快），GitHub 作为手动下载的镜像
 - 频率**默认每天检查一次**，设置里可改为每周 / 每月 / 仅手动；选「仅手动」后平时零联网
 - 选项设置里有与「基础设置」「背景设置」同级的**独立「检查更新」页签**：看频率、看上次检查时间、点「立即检查」、跳转项目主页
 - 发现新版本时弹出提示，附更新说明，可选 **立即更新 / 稍后再说 / 跳过此版本**（跳过只针对这一个版本，下个版本照常提示）
