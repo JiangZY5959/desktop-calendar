@@ -291,6 +291,7 @@ class Context(object):
         self.tray = QSystemTrayIcon(icon, self.app)
         self.tray.setToolTip(APP_NAME)
         m = QMenu()
+        m.setStyleSheet(T.menu_style())       # 与齿轮菜单、设置页同一套浅色卡片
         m.addAction(u'显示日历', self.show_main)
         m.addSeparator()
         m.addAction(u'选项设置', lambda: self.win.open_settings())

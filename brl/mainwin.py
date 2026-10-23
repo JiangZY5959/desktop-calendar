@@ -886,6 +886,7 @@ class MainWindow(QWidget):
 
     def _menu(self):
         m = QMenu(self)
+        m.setStyleSheet(T.menu_style())
         m.addAction(u'检查更新', lambda: self.check_updates(False))
         m.addAction(u'选项设置', self.open_settings)
         m.addAction(u'关于', self._about)

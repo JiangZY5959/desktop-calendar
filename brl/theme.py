@@ -204,6 +204,24 @@ def combo_style(compact=False, min_width=0):
         'QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}')
 
 
+def menu_style():
+    """右键菜单 / 齿轮菜单的统一外观：与选项设置、关于窗口同一套浅色卡片。
+
+    系统原生菜单在深色桌面主题下是黑底、细窄、方角的，和软件自己这些
+    浅色窗口放在一起很割裂。这里同样把每一态的前景色写死，避免被系统
+    调色板带跑（悬停看不见字是同一个坑）。
+    """
+    return (
+        'QMenu{background:#FFFFFF;border:1px solid #DCE0E6;border-radius:6px;'
+        'padding:6px 0;}'
+        'QMenu::item{padding:7px 30px 7px 24px;color:#202020;'
+        'font-size:13px;background:transparent;}'
+        'QMenu::item:selected{background:#EDF4FE;color:#202020;}'
+        'QMenu::item:disabled{color:#B0B5BD;background:transparent;}'
+        'QMenu::separator{height:1px;background:#E6E7E8;margin:5px 10px;}'
+        'QMenu::indicator{width:16px;height:16px;left:8px;}')
+
+
 def font(size, bold=False, italic=False):
     f = QFont()
     f.setPointSizeF(size)

@@ -2791,7 +2791,9 @@ ck('①1 升级前备份生成', bool(d) and kinds == ['db', 'ini'], d)
 ck('①2 备份落在数据目录之外', bool(d) and not d.startswith(XD), d)
 os.remove(DB)
 os.remove(INI)
-got = AD.ensure_data()
+# 显式指定备份目录：机器上可能有历史残留备份（/var/backups 等），
+# 恢复时必须用本次测试自己做的那份，不能被残留抢先
+got = AD.ensure_data(d)
 ck('①3 缺失时自动恢复', sorted(got) == ['db', 'ini'], got)
 ck('①4 待办保留', todos(DB) == 3, todos(DB))
 ck('①5 设置保留', 'theme=2' in open(INI).read())
@@ -2882,14 +2884,17 @@ os.chmod(LAUNCH, 0o755)
 env6 = dict(os.environ)
 env6.update({'HOME': H6, 'XDG_DATA_HOME': XD6, 'XDG_CONFIG_HOME': XC6,
              'QT_QPA_PLATFORM': 'offscreen', 'PYTHONPATH': HERE})
+# 备份根显式隔离：不设的话 root 下脚本会写共享的 /var/backups，
+# 既污染机器也可能让恢复读到历史残留
+BK6 = os.path.join(H6, 'bk')
+os.makedirs(BK6)
+env6['DC_BACKUP_ROOT'] = BK6
 _env_root = os.environ.get('DC_BACKUP_ROOT')
-os.environ['DC_BACKUP_ROOT'] = os.path.join(H6, 'bk')
 
 r = subprocess.run(['sh', UP_SH, 'prepare', 'u20', H6, ':0', LOG],
                    env=env6, capture_output=True, text=True)
 ck('④1 脚本完成升级前备份',
-   os.path.isdir(os.path.join(H6, '.desktop-calendar-backup'))
-   and len(os.listdir(os.path.join(H6, '.desktop-calendar-backup'))) > 0)
+   os.path.isdir(BK6) and len(os.listdir(BK6)) > 0)
 
 old = subprocess.Popen([sys.executable, '-m', 'brl'], env=env6,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -3046,6 +3051,15 @@ ck('②5 菜单保留关于', u'关于' in _menu)
 ck('②6 菜单保留退出', u'退出软件' in _menu)
 ck('②7 旧的两个处理函数已删除',
    '_open_datetime' not in _mw and '_sync_time' not in _mw)
+ck('②8 齿轮菜单用统一浅色样式',
+   'setStyleSheet(T.menu_style())' in _menu)
+_ax = open(os.path.join(HERE, 'brl', 'appctx.py'), encoding='utf-8').read()
+ck('②9 托盘菜单用统一浅色样式',
+   'setStyleSheet(T.menu_style())' in _ax)
+_th = open(os.path.join(HERE, 'brl', 'theme.py'), encoding='utf-8').read()
+ck('②10 menu_style 浅色三要素',
+   all(s in _th for s in ('background:#FFFFFF', '#DCE0E6', '#EDF4FE')) and
+   'QMenu::item:selected' in _th and 'QMenu::separator' in _th)
 
 # ---------------------------------------------------------------- ③ 关于窗口
 ck('③1 关于窗口已独立实现', 'class AboutDialog' in _mw)

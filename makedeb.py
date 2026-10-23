@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, 'brl')
 APPID = 'com.desktop.calendar'
 PKG = 'desktop-calendar'
-VER = '1.4.2.0'
+VER = '1.4.2.1'
 OUT = os.path.join(ROOT, 'dist')
 APP_NAME = u'桌面悬浮日历'
 
@@ -341,9 +341,12 @@ as_user() {
 # 刻意不放在 ~/.local/share/desktop-calendar 里面——数据目录万一被清空，
 # 备份得留在外面才救得回来。
 backup_root() {
+    # DC_BACKUP_ROOT 供测试隔离用（正常安装不设，行为不变）；
     # 光看是不是 root 不够：有些环境（沙箱、MAC 限制）连 root 都写不了
     # /var/backups，那就老老实实回落到家目录。
-    if [ -d /var/backups ] && [ -w /var/backups ]; then
+    if [ -n "$DC_BACKUP_ROOT" ] && [ -d "$DC_BACKUP_ROOT" ] && [ -w "$DC_BACKUP_ROOT" ]; then
+        echo "$DC_BACKUP_ROOT"
+    elif [ -d /var/backups ] && [ -w /var/backups ]; then
         echo "/var/backups/desktop-calendar"
     else
         echo "$UHOME/.desktop-calendar-backup"
@@ -425,7 +428,8 @@ do_restore() {
     for pair in "$INI:$CFG" "$DB:$DAT"; do
         f="${pair%%:*}"; d="${pair#*:}"
         if [ -s "$d/$f" ]; then continue; fi
-        for BK in /var/backups/desktop-calendar "$UHOME/.desktop-calendar-backup"; do
+        for BK in "$DC_BACKUP_ROOT" /var/backups/desktop-calendar \
+                  "$UHOME/.desktop-calendar-backup"; do
             if [ ! -d "$BK" ]; then continue; fi
             for sub in $(ls -1r "$BK" 2>/dev/null); do
                 src="$BK/$sub/$f"

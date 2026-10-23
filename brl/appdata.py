@@ -413,10 +413,15 @@ def migrate_legacy():
     return got
 
 
-def ensure_data():
-    """升级收尾：先补旧路径的，再补备份的。返回 ['ini','db']。"""
+def ensure_data(backup=None):
+    """升级收尾：先补旧路径的，再补备份的。返回 ['ini','db']。
+
+    backup 可显式指定备份目录（测试用），不传则按备份根里的最新一份；
+    显式指定可以避免机器上其它历史备份（如 /var/backups 里的残留）
+    抢先被当成数据源。
+    """
     got = migrate_legacy()
-    for k in restore_missing():
+    for k in restore_missing(backup):
         if k not in got:
             got.append(k)
     return got

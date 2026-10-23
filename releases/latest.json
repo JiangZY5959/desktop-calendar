@@ -1,10 +1,10 @@
 {
-  "version": "1.4.2.0",
-  "tag": "v1.4.2.0",
-  "file": "desktop-calendar_1.4.2.0_arm64.deb",
-  "size": 86296,
-  "sha256": "f04cb28323d6970dfd1312de5fa6ab2c9e17231958c2dac6b7d4c8c9208e236b",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/2fb019354baa6eae4983675c9191d209dfdd9b01/releases/desktop-calendar_1.4.2.0_arm64.deb",
+  "version": "1.4.2.1",
+  "tag": "v1.4.2.1",
+  "file": "desktop-calendar_1.4.2.1_arm64.deb",
+  "size": 86660,
+  "sha256": "46c86aed0cbe9e2ef71754fed60220e86a537e8c4ef95d790109d220cc1df2dc",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/ee0378fcec8b9e01d8514de5b4a86968b15da723/releases/desktop-calendar_1.4.2.1_arm64.deb",
   "released": "2026-10-23",
-  "notes": "· 修复\"每次打开都问一遍开机自启\"\n· 询问时机收紧\n· 修复\"勾了开机自启却没生效\"\n· 齿轮菜单瘦身\n· 「项目主页」移到「关于」"
+  "notes": "· 齿轮菜单换肤\n· 托盘右键菜单同步换肤，两处观感一致"
 }
