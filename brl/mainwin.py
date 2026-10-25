@@ -15,7 +15,7 @@ from . import theme as T
 from . import lunar as L
 from . import store as S
 from .caltable import CalTable
-from .todo import TodoEditDialog, TodoListDialog
+from .todo import (TodoEditDialog, TodoListDialog, REMIND_LEAD, remind_lead)
 from .settings import SettingsDialog
 from .updatedlg import UpdateFlow
 from . import x11fix as X11
@@ -73,11 +73,21 @@ class AboutDialog(QDialog):
         lay.addSpacing(8)
         lay.addLayout(self._row(u'作者', QLabel(u'JiangZY')))
         lay.addSpacing(8)
-        pages = QVBoxLayout()
-        pages.setSpacing(2)
-        if page:
-            pages.addWidget(self._link(page, u'GitCode（国内）'))
-        pages.addWidget(self._link(gh, u'GitHub'))
+        # 项目主页：只留两个站点图标，点图标直达对应仓库。
+        # 不再写"GitCode（国内）/GitHub"文字——哪个图标是哪个站，
+        # 悬停一下就有说明；没取到图标时自动跳过，不摆一个空按钮。
+        pages = QHBoxLayout()
+        pages.setSpacing(6)
+        for icon_name, url, tip in (
+                ('site_gitcode.png', page, u'GitCode 项目主页'),
+                ('site_github.png', gh, u'GitHub 项目主页')):
+            if not url:
+                continue
+            pm = T.pix(D.res('icons', icon_name))
+            if pm.isNull():
+                continue
+            pages.addWidget(self._icon_link(pm, url, tip))
+        pages.addStretch(1)
         lay.addLayout(self._row(u'项目主页', pages))
         lay.addSpacing(14)
         lay.addWidget(self._sep())
@@ -133,14 +143,20 @@ class AboutDialog(QDialog):
         return h
 
     @staticmethod
-    def _link(url, text):
-        b = QPushButton(text)
-        b.setCursor(Qt.PointingHandCursor)
+    def _icon_link(pm, url, tip):
+        """带站点图标的跳转按钮：细边框小卡片，点一下开浏览器。"""
+        b = QPushButton()
+        b.setFixedSize(36, 36)
+        b.setIcon(QIcon(pm))
+        b.setIconSize(QSize(24, 24))
         b.setFlat(True)
+        b.setFocusPolicy(Qt.NoFocus)
+        b.setCursor(Qt.PointingHandCursor)
+        b.setToolTip(tip)
         b.setStyleSheet(
-            'QPushButton{background:transparent;border:none;color:#2F7BFF;'
-            'font-size:13px;text-align:left;padding:0 0 0 0;}'
-            'QPushButton:hover{color:#4A8CFF;}')
+            'QPushButton{background:#FFFFFF;border:1px solid #DCE0E6;'
+            'border-radius:6px;padding:2px;}'
+            'QPushButton:hover{background:#F5F8FF;border-color:#A9CDF7;}')
         b.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
         return b
 
@@ -203,8 +219,11 @@ class RemindPopup(QDialog):
         self._content = QLabel(todo.get('content', ''))
         self._content.setWordWrap(True)
         self._content.setObjectName('popContent')
-        info = QLabel(u'%s  %s' % (todo.get('date', ''),
-                                   todo.get('remind_time', '')))
+        when = u'%s  %s' % (todo.get('date', ''), todo.get('remind_time', ''))
+        lead = todo.get('lead') or 0
+        if lead:
+            when += u'（%d 天后到期）' % lead
+        info = QLabel(when)
         info.setObjectName('popInfo')
         body.addWidget(self._content)
         body.addWidget(info)
@@ -738,18 +757,24 @@ class MainWindow(QWidget):
         now = datetime.datetime.now()
         hhmm = now.strftime('%H:%M')
         today = now.date()
-        # 「当天提醒」= 到期日就是今天；「前一天提醒」= 到期日是明天，
-        # 也就是今天提前一天弹窗。之前这里写成 now-1day，方向反了，
-        # 导致前一天提醒永远取不到待办、从不触发。
-        for mode, day in ((2, today), (1, today + datetime.timedelta(days=1))):
+        # 每种提醒方式对应"提前多少天"：当天=0、前一天=1、前三天=3、
+        # 前一周=7……到期日 = 今天 + 提前天数，正好轮到那天的才该弹。
+        # 之前只有两种方式时写成 ((2, today), (1, today+1))，方向别搞反：
+        # "前一天提醒"查的是明天到期、今天提前一天弹。
+        leads = sorted(set(v for v in REMIND_LEAD.values() if v is not None))
+        by_lead = {}
+        for lead in leads:
+            day = today + datetime.timedelta(days=lead)
             try:
-                todos = self._store.for_date(day)
+                by_lead[lead] = self._store.for_date(day)
             except Exception:
-                todos = []
-            for t in todos:
+                by_lead[lead] = []
+        for lead in leads:
+            day = today + datetime.timedelta(days=lead)
+            for t in by_lead[lead]:
                 if t.get('done'):
                     continue
-                if int(t.get('remind') or 0) != mode:
+                if remind_lead(t.get('remind')) != lead:
                     continue
                 want = (t.get('remind_time') or '')[:5]
                 if not want or want > hhmm:
@@ -762,6 +787,7 @@ class MainWindow(QWidget):
                 st.sync()
                 row = dict(t)
                 row['date'] = day.isoformat()
+                row['lead'] = lead
                 self._log_remind(u'触发 #%s %s %s %s' % (
                     t['id'], day.isoformat(), want, row.get('content', '')))
                 # 必须长期持有引用：否则弹窗创建后立刻被 Python 垃圾回收，

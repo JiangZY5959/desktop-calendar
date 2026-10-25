@@ -1,10 +1,10 @@
 {
-  "version": "1.4.2.1",
-  "tag": "v1.4.2.1",
-  "file": "desktop-calendar_1.4.2.1_arm64.deb",
-  "size": 86660,
-  "sha256": "46c86aed0cbe9e2ef71754fed60220e86a537e8c4ef95d790109d220cc1df2dc",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/ee0378fcec8b9e01d8514de5b4a86968b15da723/releases/desktop-calendar_1.4.2.1_arm64.deb",
-  "released": "2026-10-23",
-  "notes": "· 齿轮菜单换肤\n· 托盘右键菜单同步换肤，两处观感一致"
+  "version": "1.4.3.0",
+  "tag": "v1.4.3.0",
+  "file": "desktop-calendar_1.4.3.0_arm64.deb",
+  "size": 94184,
+  "sha256": "f856b9f20b264fc5da44a41788d8a1cdbd9ede0ff0272fa7d1c83573278ab39f",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/bddd24462c83fa9833002f02cccef347bce29764/releases/desktop-calendar_1.4.3.0_arm64.deb",
+  "released": "2026-10-25",
+  "notes": "· 提醒方式扩到 8 档\n· 关于窗口的项目主页只留图标\n· \"已是最新版本\"等更新提示换肤"
 }

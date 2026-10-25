@@ -15,7 +15,7 @@ import time
 from PyQt5.QtCore import Qt, QThread, QObject, pyqtSignal, QRectF, QTimer
 from PyQt5.QtGui import QPainter, QColor, QPen, QIcon
 from PyQt5.QtWidgets import (QDialog, QWidget, QLabel, QPushButton, QVBoxLayout,
-                             QHBoxLayout, QTextBrowser, QApplication, QMessageBox)
+                             QHBoxLayout, QTextBrowser, QApplication)
 
 from . import theme as T
 from . import data as D
@@ -32,7 +32,12 @@ class _Panel(QDialog):
         self.setWindowTitle(title)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setFixedSize(w, h)
+        if h:
+            self.setFixedSize(w, h)
+        else:
+            # 高度不定的提示窗：只锁宽，高随内容走
+            self.setFixedWidth(w)
+            self.setSizeGripEnabled(False)
         self._theme = dict(theme or {})
         # 与「选项设置」同一套浅色卡片：这里刻意不跟随日历主题的深浅。
         # 之前为了在深色主题上也看得清，主体用的是深色底，结果在白色系
@@ -118,6 +123,48 @@ class _Bar(QWidget):
             p.setBrush(QColor('#2F7BFF'))
             p.drawRoundedRect(QRectF(0, 0, max(h, w * self._f), h), h / 2.0, h / 2.0)
         p.end()
+
+
+class MsgDialog(_Panel):
+    """通用提示窗，顶替系统 QMessageBox。
+
+    之前"当前已是最新版本"这类提示用的是系统 QMessageBox：UOS 的原生
+    标题栏上会带出奇怪的装饰符号，按钮还是英文的「√OK」，跟软件自己
+    的浅色卡片风格完全不搭。统一换成无边框浅色卡片 + 一个「好的」按钮。
+    """
+
+    def __init__(self, parent, title, text):
+        _Panel.__init__(self, None, parent, 380, 0, title)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 14, 18, 16)
+        lay.setSpacing(10)
+
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        ic = QLabel()
+        ic.setFixedSize(20, 20)
+        pm = T.pix(D.res('icons', 'calendar.png'))
+        ic.setPixmap(pm.scaled(20, 20, Qt.KeepAspectRatio,
+                               Qt.SmoothTransformation))
+        head.addWidget(ic, 0, Qt.AlignVCenter)
+        head.addWidget(self._label(title, 15, bold=True), 0, Qt.AlignVCenter)
+        head.addStretch(1)
+        head.addWidget(self._close_btn(), 0, Qt.AlignVCenter)
+        lay.addLayout(head)
+
+        body = QLabel(text)
+        body.setWordWrap(True)
+        body.setStyleSheet('color:%s;font-size:13px;background:transparent;'
+                           % self._txt)
+        lay.addWidget(body)
+        lay.addStretch(1)
+
+        row = QHBoxLayout()
+        row.addStretch(1)
+        b = self._btn(u'好的', primary=True, w=84, h=30)
+        b.clicked.connect(self.accept)
+        row.addWidget(b)
+        lay.addLayout(row)
 
 
 class BusyDialog(_Panel):
@@ -356,6 +403,11 @@ class UpdateFlow(QObject):
     def _theme(self):
         return getattr(self._host, '_theme', None)
 
+    def _msg(self, title, text):
+        """统一的提示窗（浅色卡片 + 「好的」按钮），不再用系统对话框。"""
+        dlg = MsgDialog(self._parent, title, text)
+        dlg.exec_()
+
     def busy(self):
         return self._check_th is not None or self._inst_th is not None
 
@@ -391,9 +443,8 @@ class UpdateFlow(QObject):
         self._close_busy()
         self._log(u'检查失败：%s' % err)
         if not silent:
-            QMessageBox.warning(self._parent, APP_NAME,
-                                u'检查更新失败：\n%s\n\n可以稍后再试，或直接到\n%s\n手动下载。'
-                                % (err, U.PAGE))
+            self._msg(u'检查更新失败',
+                      u'%s\n\n可以稍后再试，或直接到\n%s\n手动下载。' % (err, U.PAGE))
 
     def _on_checked(self, m, silent):
         self._close_busy()
@@ -410,9 +461,7 @@ class UpdateFlow(QObject):
                   (remote, APP_VER, u'有新版本' if newer else u'已是最新'))
         if not newer:
             if not silent:
-                QMessageBox.information(
-                    self._parent, APP_NAME,
-                    u'当前已是最新版本 v%s。' % APP_VER)
+                self._msg(u'检查更新', u'当前已是最新版本 v%s。' % APP_VER)
             return
         skip = str(st.value('update/skip') or '')
         if skip and skip == remote:
@@ -446,7 +495,7 @@ class UpdateFlow(QObject):
         try:
             url = U.resolve_url(m)
         except Exception as e:
-            QMessageBox.warning(self._parent, APP_NAME, u'%s' % e)
+            self._msg(u'下载更新失败', u'%s' % e)
             return
         name = str(m.get('file') or (U.DEB_TMPL % m.get('version')))
         dest = os.path.join(U.updates_dir(), name)
@@ -481,7 +530,7 @@ class UpdateFlow(QObject):
         except Exception:
             pass
         if err and err != u'已取消':
-            QMessageBox.warning(self._parent, APP_NAME, u'下载更新失败：\n%s' % err)
+            self._msg(u'下载更新失败', u'%s' % err)
 
     def _on_downloaded(self, path, m, dlg):
         ok, why = U.verify_deb(path, m.get('size') or 0, m.get('sha256') or '')
@@ -492,8 +541,8 @@ class UpdateFlow(QObject):
             except Exception:
                 pass
             U._safe_remove(path)
-            QMessageBox.warning(self._parent, APP_NAME,
-                                u'安装包校验失败：%s\n请稍后重试。' % why)
+            self._msg(u'安装包校验失败',
+                      u'%s\n请稍后重试。' % why)
             return
         dlg.set_status(u'下载完成，正在启动安装…')
         try:
@@ -519,17 +568,16 @@ class UpdateFlow(QObject):
         self._backup()
         plan = U.installer_plan(path)
         if not plan:
-            QMessageBox.information(
-                self._parent, APP_NAME,
-                u'安装包已下载到：\n%s\n\n没有找到可用的安装程序，请手动双击安装。' % path)
+            self._msg(u'安装更新',
+                      u'安装包已下载到：\n%s\n\n没有找到可用的安装程序，请手动双击安装。'
+                      % path)
             return
         self._try_install(path, plan, 0)
 
     def _try_install(self, path, plan, idx):
         if idx >= len(plan):
-            QMessageBox.warning(
-                self._parent, APP_NAME,
-                u'自动安装失败，请手动安装：\n%s' % path)
+            self._msg(u'安装更新',
+                      u'自动安装失败，请手动安装：\n%s' % path)
             return
         kind, argv, label = plan[idx]
         if kind == 'gui':
@@ -540,10 +588,9 @@ class UpdateFlow(QObject):
                 self._try_install(path, plan, idx + 1)
                 return
             self._log(u'已交给 %s 安装' % label)
-            QMessageBox.information(
-                self._parent, APP_NAME,
-                u'已启动%s。\n请在打开的窗口里确认安装，装好后日历会自动换成新版本。'
-                % label)
+            self._msg(u'安装更新',
+                      u'已启动%s。\n请在打开的窗口里确认安装，装好后日历会自动换成新版本。'
+                      % label)
             return
         busy = BusyDialog(self._theme(), self._parent,
                           u'正在安装更新…', cancellable=False)

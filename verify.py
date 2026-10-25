@@ -797,7 +797,14 @@ ck('悬浮式时间盘 TimePopup', 'class TimePopup' in tsrc and 'Qt.Popup' in t
 ck('滚轮全部自绘（不依赖系统风格）',
    'def paintEvent' in tsrc and 'QComboBox' not in tsrc)
 ck('不再使用只能键盘调的 QTimeEdit 控件', 'self.tm = QTimeEdit()' not in src)
-ck('提醒文案精简', u"REMINDS = [u'不提醒', u'前一天提醒', u'当天提醒']" in src)
+ck('提醒选项更丰富（当天/前一天/前两天/前三天/前一周/前两周/前一个月）',
+   all(t in src for t in (u'不提醒', u'当天提醒', u'前一天提醒', u'前两天提醒',
+                          u'前三天提醒', u'前一周提醒', u'前两周提醒',
+                          u'前一个月提醒')))
+ck('提醒编码映射保持老数据兼容（0不/1前一天/2当天）',
+   'REMIND_LEAD = {0: None, 1: 1, 2: 0, 3: 2, 4: 3, 5: 7, 6: 14, 7: 30}' in src)
+ck('下拉用 itemData 存编码（顺序与编码解耦）',
+   'addItem(_text, _code)' in src and 'currentData()' in src)
 ck('下拉框自绘箭头（统一样式在 theme，todo 引用）',
    'down-arrow{image:url(' in thsrc and 'T.combo_style()' in src)
 ck('箭头图标存在', os.path.exists(os.path.join(HERE, 'brl', 'resources', 'icons',
@@ -807,9 +814,22 @@ ed = todo.TodoEditDialog(S, d0, None, None)
 ed.show()
 app.processEvents()
 ck('默认"不提醒"时时间置灰', not ed.tm.isEnabled())
-ed.cb_remind.setCurrentIndex(2)
+ck('提醒下拉共 8 档', ed.cb_remind.count() == 8, str(ed.cb_remind.count()))
+ed.cb_remind.setCurrentIndex(1)      # 下拉第 2 项 = 当天提醒（编码 2）
 app.processEvents()
 ck('选"当天提醒"后时间可选', ed.tm.isEnabled())
+ck('当天选项带回的编码仍是 2（老数据不变）',
+   int(ed.cb_remind.currentData()) == 2, str(ed.cb_remind.currentData()))
+ed.cb_remind.setCurrentIndex(ed.cb_remind.findData(5))
+app.processEvents()
+ck('可选"前一周提醒"且能设时间',
+   ed.cb_remind.currentText() == u'前一周提醒' and ed.tm.isEnabled(),
+   ed.cb_remind.currentText())
+ed.cb_remind.setCurrentIndex(0)
+app.processEvents()
+ck('切回"不提醒"时间又置灰', not ed.tm.isEnabled())
+ed.cb_remind.setCurrentIndex(1)
+app.processEvents()
 ed.tm.setTime(QTime(7, 30))
 app.processEvents()
 ck('时间能改为 07:30', ed.tm.text() == '07:30', ed.tm.text())
@@ -1291,7 +1311,7 @@ os.environ['XDG_DATA_HOME'] = os.path.join(_TMP, 'data')
 
 from PyQt5.QtCore import Qt, QRect, QRectF, QSize, QTime
 from PyQt5.QtGui import QPainter, QImage, QColor
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QLabel
 
 app = QApplication(sys.argv)
 
@@ -1489,8 +1509,9 @@ today = now.date()
 tomorrow = today + datetime.timedelta(days=1)
 yesterday = today - datetime.timedelta(days=1)
 
-ck('源码：当天提醒取今天、前一天提醒取明天',
-   '((2, today), (1, today + datetime.timedelta(days=1)))' in msrc)
+ck('源码：提醒按提前天数换算到期日（lead 天后 = 到期日）',
+   'day = today + datetime.timedelta(days=lead)' in msrc
+   and 'remind_lead(t.get(' in msrc)
 
 id_prev = S4.add(u'前一天提醒测试', date=tomorrow.isoformat(), remind=1,
                  remind_time=past)
@@ -1500,15 +1521,25 @@ id_old = S4.add(u'旧逻辑会误弹的一天前的待办', date=yesterday.isofo
                 remind=1, remind_time=past)
 id_none = S4.add(u'不提醒测试', date=today.isoformat(), remind=0,
                  remind_time=past)
+id_week = S4.add(u'前一周提醒测试',
+                 date=(today + datetime.timedelta(days=7)).isoformat(),
+                 remind=5, remind_time=past)
 
 w2._pops = []
 w2._check_remind()
 did = sorted([p._todo.get('id') for p in w2._pops])
 ck('前一天提醒会弹（到期日=明天）', id_prev in did, '%s' % did)
 ck('当天提醒会弹（到期日=今天）', id_today in did, '%s' % did)
+ck('前一周提醒会弹（到期日=7 天后）', id_week in did, '%s' % did)
 ck('不提醒的不弹', id_none not in did, '%s' % did)
 ck('过期的前一天提醒不再误弹', id_old not in did, '%s' % did)
-ck('弹窗保持在内存里不被 GC', len(w2._pops) >= 2, 'pops=%d' % len(w2._pops))
+ck('弹窗保持在内存里不被 GC', len(w2._pops) >= 3, 'pops=%d' % len(w2._pops))
+if w2._pops:
+    wk = [p for p in w2._pops if p._todo.get('id') == id_week]
+    ck('提前提醒的弹窗标出"N 天后到期"',
+       not wk or u'7 天后到期' in wk[0].findChild(QLabel, 'popInfo').text()
+       or any(u'7 天后到期' in lb.text() for lb in wk[0].findChildren(QLabel)),
+       wk[0]._todo.get('content', '') if wk else '')
 
 n2 = len(w2._pops)
 for p in list(w2._pops):
@@ -1521,8 +1552,9 @@ logp = os.path.join(remind_home, 'data', 'desktop-calendar', 'remind.log')
 ck('提醒日志已写入', os.path.exists(logp))
 if os.path.exists(logp):
     txt = open(logp).read()
-    ck('日志里包含两条触发记录',
-       u'前一天提醒测试' in txt and u'当天提醒测试' in txt, txt.replace('\n', ' | ')[:120])
+    ck('日志里包含三条触发记录',
+       u'前一天提醒测试' in txt and u'当天提醒测试' in txt
+       and u'前一周提醒测试' in txt, txt.replace('\n', ' | ')[:160])
 
 print()
 print('=== RESULT: PASS %d  FAIL %d' % (npass, nfail))
@@ -2575,10 +2607,25 @@ SRV['manifest'] = {'version': '9.9.9.9', 'notes': u'端到端测试版\n第二�
 threading.Thread(target=httpd3.serve_forever, daemon=True).start()
 LOCAL3 = 'http://127.0.0.1:%d/api/v5' % PORT3
 
-msgs = {'info': [], 'warn': [], 'q': []}
-UD.QMessageBox.information = lambda *a, **k: msgs['info'].append(a)
-UD.QMessageBox.warning = lambda *a, **k: msgs['warn'].append(a)
-UD.QMessageBox.question = lambda *a, **k: (msgs['q'].append(a), QMessageBox.No)[1]
+# 更新流程里的提示窗已全部换成自绘 MsgDialog（浅色卡片 +「好的」），
+# 这里同样用替身记录弹出的 (标题, 正文)，顺便断言不再碰系统 QMessageBox。
+udsrc = open(os.path.join(OUT, 'brl', 'updatedlg.py'), encoding='utf-8').read()
+ck('⑧.更新流程不再用系统 QMessageBox', 'QMessageBox' not in udsrc.replace(
+    '顶替系统 QMessageBox', '').replace('系统 QMessageBox', ''))
+ck('⑧.提示窗按钮是「好的」', u"self._btn(u'好的'" in udsrc)
+
+
+class FakeMsg(object):
+    shown = []
+
+    def __init__(self, *a, **k):
+        FakeMsg.shown.append(a)
+
+    def exec_(self):
+        return QDialog.Accepted
+
+
+UD.MsgDialog = FakeMsg
 spawned = []
 
 
@@ -2620,17 +2667,19 @@ ck('⑧.确认后下载并进入安装', done8 and bool(spawned), spawned)
 ck('⑧.提示窗出现过', FakePrompt.shown == ['9.9.9.9'], FakePrompt.shown)
 ck('⑧.交给安装器的命令含 deb',
    spawned and spawned[0][-1].endswith('t_9.9.9.9.deb'), spawned)
-ck('⑧.提示已启动安装程序', len(msgs['info']) == 1 and u'已启动' in str(msgs['info'][0]),
-   msgs['info'])
+ck('⑧.提示已启动安装程序', len(FakeMsg.shown) == 1 and u'已启动' in str(FakeMsg.shown[0]),
+   FakeMsg.shown)
 ck('⑧.下载文件校验通过', os.path.exists(os.path.join(updir, 't_9.9.9.9.deb')))
 
 # --- 8.2 安装包已在本地且校验通过 -> 直接安装不再下载
 spawned[:] = []
-msgs['info'][:] = []
+FakeMsg.shown[:] = []
 flow2 = UpdateFlow(ctx.store, w)
 flow2._parent = w
 flow2._download(dict(SRV['manifest']))
-ck('⑧.已有安装包直接安装', bool(spawned) and not msgs['warn'], (spawned, msgs['warn']))
+ck('⑧.已有安装包直接安装', bool(spawned)
+   and not any(u'失败' in str(m) for m in FakeMsg.shown),
+   (spawned, FakeMsg.shown))
 
 # ================= ⑨ 静默规则 =================
 st = ctx.store.settings()
@@ -2675,7 +2724,24 @@ flow6._parent = w
 flow6.check(silent=False, parent=w)
 spin(app, lambda: flow6._check_th is None, 10)
 app.processEvents()
-ck('⑨.手动检查失败有提示', len(msgs['warn']) >= 1, msgs['warn'])
+ck('⑨.手动检查失败有提示', len(FakeMsg.shown) >= 1, FakeMsg.shown)
+
+# --- 9.4 已是最新版本：自绘提示窗（浅色卡片 +「好的」按钮） ---
+SRV['manifest'] = {'version': _B.__version__, 'notes': '', 'file': 'x.deb',
+                   'size': 0, 'sha256': '', 'url': ''}
+FakeMsg.shown[:] = []
+st.setValue('update/mode', 'manual')
+st.setValue('update/skip', '')
+st.setValue('update/last', 0)
+st.sync()
+flow7 = UpdateFlow(ctx.store, w)
+flow7._parent = w
+flow7.check(silent=False, parent=w)
+spin(app, lambda: flow7._check_th is None, 10)
+app.processEvents()
+ck('⑨.已是最新弹自绘窗', len(FakeMsg.shown) == 1, FakeMsg.shown)
+ck('⑨.文案含"已是最新版本"',
+   FakeMsg.shown and u'已是最新版本' in str(FakeMsg.shown[0]), FakeMsg.shown)
 
 # ================= ⑩ 安全 =================
 brand_free = True
@@ -3090,7 +3156,22 @@ _txt += ' ' + ' '.join(w.text() for w in dlg.findChildren(QPushButton))
 ck('③9 关于窗能正常构建', dlg.width() > 300 and dlg.height() > 200,
    '%dx%d' % (dlg.width(), dlg.height()))
 ck('③10 关于窗含作者与版本', 'JiangZY' in _txt and 'v' in _txt)
-ck('③11 关于窗含主页入口', 'GitCode' in _txt)
+_tips = ' '.join(w.toolTip() for w in dlg.findChildren(QPushButton))
+ck('③11 主页入口改为纯图标+悬停说明',
+   'GitCode' in _tips and 'GitHub' in _tips, _tips)
+ck('③12 主页图标文件存在',
+   os.path.exists(os.path.join(HERE, 'brl', 'resources', 'icons',
+                               'site_github.png'))
+   and os.path.exists(os.path.join(HERE, 'brl', 'resources', 'icons',
+                                   'site_gitcode.png')))
+ck('③13 主页不再写"（国内）"等文字', u'（国内）' not in _txt and 'GitHub' not in _txt,
+   _txt[:80])
+_icon_btns = [b for b in dlg.findChildren(QPushButton) if b.toolTip()]
+ck('③14 主页图标可点且走 openUrl 跳转',
+   len(_icon_btns) >= 2 and 'QDesktopServices.openUrl' in _mw)
+ck('③15 两个图标按钮尺寸一致',
+   len(_icon_btns) >= 2 and len(set((b.width(), b.height())
+                                    for b in _icon_btns[:2])) == 1)
 
 print()
 print('结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))

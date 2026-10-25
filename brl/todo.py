@@ -18,7 +18,29 @@ from . import APP_NAME
 
 CATEGORIES = [u'生活', u'工作', u'家庭', u'亲友', u'自己']
 REPEATS = [u'不重复', u'每年重复', u'每月重复', u'每周重复']
-REMINDS = [u'不提醒', u'前一天提醒', u'当天提醒']
+# 提醒方式：下拉显示顺序 ≠ 数据库里存的编码。
+# 编码是历史约定：0=不提醒 1=前一天 2=当天，老用户的数据不能动，
+# 新增选项只能从 3 往后排；显示上按"由近到远"排，符合直觉。
+REMIND_ITEMS = [
+    (0, u'不提醒'),
+    (2, u'当天提醒'),
+    (1, u'前一天提醒'),
+    (3, u'前两天提醒'),
+    (4, u'前三天提醒'),
+    (5, u'前一周提醒'),
+    (6, u'前两周提醒'),
+    (7, u'前一个月提醒'),
+]
+# remind 编码 -> 提前天数（0=当天；None=不提醒）
+REMIND_LEAD = {0: None, 1: 1, 2: 0, 3: 2, 4: 3, 5: 7, 6: 14, 7: 30}
+
+
+def remind_lead(code):
+    """提醒编码换算成提前多少天提醒；0/未知编码一律当"不提醒"。"""
+    try:
+        return REMIND_LEAD.get(int(code or 0))
+    except (TypeError, ValueError):
+        return None
 PALETTE = ['#FFFFFFFF', '#FFFF4D4D', '#FFFFA640', '#FFFFE14D', '#FF5CD65C',
            '#FF4DC4FF', '#FF7C8CFF', '#FFFF7CD6', '#FF9E9E9E', '#FF000000']
 
@@ -120,7 +142,8 @@ class TodoEditDialog(QDialog):
 
         bl.addWidget(QLabel(u'待办提醒:'), 4, 0)
         self.cb_remind = QComboBox()
-        self.cb_remind.addItems(REMINDS)
+        for _code, _text in REMIND_ITEMS:
+            self.cb_remind.addItem(_text, _code)
         self.cb_remind.setStyleSheet(T.combo_style())
         self.cb_remind.setMinimumWidth(150)
         self.cb_remind.setCursor(Qt.PointingHandCursor)
@@ -160,21 +183,22 @@ class TodoEditDialog(QDialog):
                 y, m, d = todo['date'][:10].split('-')
                 self.dt.setDate(QDate(int(y), int(m), int(d)))
             self.cb_repeat.setCurrentIndex(todo['repeat'])
-            self.cb_remind.setCurrentIndex(todo['remind'])
+            _idx = self.cb_remind.findData(int(todo['remind'] or 0))
+            self.cb_remind.setCurrentIndex(_idx if _idx >= 0 else 0)
             if todo['remind_time']:
                 hh, mm = todo['remind_time'].split(':')[:2]
                 self.tm.setTime(QTime(int(hh), int(mm)))
 
     def _sync_remind(self, *args):
         """选"不提醒"时把时间选择置灰，选了提醒才可调时间"""
-        self.tm.setEnabled(self.cb_remind.currentIndex() > 0)
+        self.tm.setEnabled(bool(self.cb_remind.currentData()))
 
     def _ok(self):
         if not self.ed_content.text().strip():
             QMessageBox.information(self, APP_NAME, u'请输入待办内容')
             return
         d = self.dt.date()
-        remind = self.cb_remind.currentIndex()
+        remind = int(self.cb_remind.currentData() or 0)
         self.result_data = dict(
             content=self.ed_content.text().strip(),
             category=self.cb_type.currentText(),
