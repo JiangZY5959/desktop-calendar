@@ -18,7 +18,10 @@ from . import lunar as L
 from . import data as D
 from . import theme as T
 
-WEEK_HEAD = [u'周日', u'周一', u'周二', u'周三', u'周四', u'周五', u'周六']
+# 表头按「周一打头」：国内习惯，也和法定节假日的班/休排布一致。
+# 老版本是周日打头（WEEK_HEAD_SUN），保留它只为兼容旧的 firstday 选项。
+WEEK_HEAD = [u'周一', u'周二', u'周三', u'周四', u'周五', u'周六', u'周日']
+WEEK_HEAD_SUN = [u'周日', u'周一', u'周二', u'周三', u'周四', u'周五', u'周六']
 COLOR_KEYS = ('txtclr', 'weekclr', 'jiericlr', 'todayclr',
               'mainbg', 'gridbg', 'weekgridbg', 'borderin')
 
@@ -52,7 +55,7 @@ class CalTable(QWidget):
         self._theme = T.ALL_THEMES[0]
         self._clr = {}                # 当前生效颜色（含覆盖）
         self._scale = 1.0
-        self._firstday = 0            # 0=周日 1=周一
+        self._firstday = 1            # 0=周日 1=周一（默认周一打头）
         self.set_theme(T.ALL_THEMES[0])
 
     # ------------------------------------------------ 配置
@@ -165,10 +168,15 @@ class CalTable(QWidget):
     def _week_col_w(self, w):
         return int(26 * self._scale) if self._show_week else 0
 
+    def _col_wd(self, i):
+        """第 i 列对应星期几（0=周一 … 6=周日，与 datetime.weekday() 一致）"""
+        return i if self._firstday == 1 else (i + 6) % 7
+
     def _days(self):
         """返回要显示的日期列表"""
         if self._view == 'week':
-            start = self._selected - datetime.timedelta(days=(self._selected.weekday() + 1) % 7)
+            lead = (self._selected.weekday() - self._col_wd(0)) % 7
+            start = self._selected - datetime.timedelta(days=lead)
             return [start + datetime.timedelta(days=i) for i in range(7)]
         y, m = self._month.year, self._month.month
         first = datetime.date(y, m, 1)
@@ -202,17 +210,20 @@ class CalTable(QWidget):
             p.setPen(QPen(QColor(self._clr['weekclr'])))
             days = self._days()
             for r in range(rows):
-                d = days[r * 7]
+                # 取这一行的周四算周数：ISO 周以周四所在年为准，
+                # 无论首列是周一还是周日，整行都落在同一周里。
+                d = days[r * 7 + 3]
                 rect = QRectF(0, head + r * ch, wk_w - 4, ch)
                 p.drawText(rect, Qt.AlignCenter | Qt.AlignVCenter,
-                           str(self.week_no(d + datetime.timedelta(days=3))))
-        # 表头
-        for i, name in enumerate(WEEK_HEAD):
+                           str(self.week_no(d)))
+        # 表头（列名跟着首列走：周一打头就是 周一…周日）
+        names = WEEK_HEAD if self._firstday == 1 else WEEK_HEAD_SUN
+        for i, name in enumerate(names):
             r = QRectF(wk_w + i * cw, 0, cw, head)
             if self._show_line:
                 p.fillRect(r, self._clr['weekgridbg'])
-            idx = (i - self._firstday) % 7
-            f = T.font(max(9, 12 * self._scale), bold=(idx == 0 or idx == 6))
+            # 周末加粗：按列对应的真实星期判断，换首列也不会错位
+            f = T.font(max(9, 12 * self._scale), bold=(self._col_wd(i) >= 5))
             p.setFont(f)
             p.setPen(QPen(self._clr['weekclr']))
             p.drawText(r, Qt.AlignCenter | Qt.AlignVCenter, name)

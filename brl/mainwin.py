@@ -7,7 +7,7 @@ from PyQt5.QtCore import Qt, QTimer, QRectF, QRect, QSize, QUrl
 from PyQt5.QtGui import (QPainter, QColor, QPixmap, QCursor, QPen, QIcon,
                          QFont, QDesktopServices)
 from PyQt5.QtWidgets import (QWidget, QLabel, QPushButton, QHBoxLayout, QVBoxLayout,
-                             QMenu, QSystemTrayIcon, QApplication, QDialog,
+                             QSystemTrayIcon, QApplication, QDialog,
                              QMessageBox, QSizeGrip, QFrame, QLayout)
 
 from . import data as D
@@ -361,7 +361,8 @@ class MainWindow(QWidget):
             jieri=str(st.value('cal/showjieri', '1')) == '1',
             line=str(st.value('cal/showline', '1')) == '1',
             ban=str(st.value('cal/showban', '1')) == '1',
-            firstday=int(st.value('cal/firstday') or 0),
+            # 首列固定周一打头（cal/firstday 没有对外开关，缺省按 1）
+            firstday=int(st.value('cal/firstday') or 1),
             week=str(st.value('cal/showweek', '0')) == '1',
             tips=str(st.value('cal/showtips', '1')) == '1',
             weekstart=str(st.value('cal/weekstart') or 'jan1'),
@@ -808,7 +809,7 @@ class MainWindow(QWidget):
 
     # ------------------------------------------------ 视图 / 菜单
     def _on_view(self):
-        m = QMenu(self)
+        m = T.CardMenu(self)
         for i, name in enumerate((u'月视图', u'周视图')):
             a = m.addAction(name)
             a.setCheckable(True)
@@ -911,8 +912,7 @@ class MainWindow(QWidget):
         self._apply_skip_taskbar(_force=True)
 
     def _menu(self):
-        m = QMenu(self)
-        m.setStyleSheet(T.menu_style())
+        m = T.CardMenu(self)      # 圆角浅色卡片菜单（QSS 圆角在菜单上不生效）
         m.addAction(u'检查更新', lambda: self.check_updates(False))
         m.addAction(u'选项设置', self.open_settings)
         m.addAction(u'关于', self._about)

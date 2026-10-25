@@ -3,7 +3,7 @@
 import os
 import sys
 
-from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
 
 from . import theme as T
 from . import store as S
@@ -290,8 +290,7 @@ class Context(object):
         icon = T.app_icon()
         self.tray = QSystemTrayIcon(icon, self.app)
         self.tray.setToolTip(APP_NAME)
-        m = QMenu()
-        m.setStyleSheet(T.menu_style())       # 与齿轮菜单、设置页同一套浅色卡片
+        m = T.CardMenu()       # 与齿轮菜单、设置页同一套圆角浅色卡片
         m.addAction(u'显示日历', self.show_main)
         m.addSeparator()
         m.addAction(u'选项设置', lambda: self.win.open_settings())

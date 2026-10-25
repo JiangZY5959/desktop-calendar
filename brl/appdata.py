@@ -383,23 +383,24 @@ def migrate_legacy():
             if mt > best_mt:
                 best, best_mt = p, mt
         if not best:
-            # 备份目录内部按子目录找最新的那个
-            for root in (os.path.join(home, '.desktop-calendar-backup'),
-                         '/var/backups/desktop-calendar'):
+            # 备份目录内部按子目录找最新的那个（只翻家目录里这份；
+            # 系统级备份区归 restore_missing 统一管，在这里翻容易把
+            # 别的机器/历史安装留下的陈年数据搬回来）
+            root = os.path.join(home, '.desktop-calendar-backup')
+            try:
+                subs = sorted(os.listdir(root), reverse=True)
+            except OSError:
+                subs = []
+            for s in subs:
+                p = os.path.join(root, s, base)
                 try:
-                    subs = sorted(os.listdir(root), reverse=True)
+                    if not os.path.isfile(p) or os.path.getsize(p) <= 0:
+                        continue
+                    mt = os.path.getmtime(p)
                 except OSError:
                     continue
-                for s in subs:
-                    p = os.path.join(root, s, base)
-                    try:
-                        if not os.path.isfile(p) or os.path.getsize(p) <= 0:
-                            continue
-                        mt = os.path.getmtime(p)
-                    except OSError:
-                        continue
-                    if mt > best_mt:
-                        best, best_mt = p, mt
+                if mt > best_mt:
+                    best, best_mt = p, mt
         if not best:
             continue
         try:
@@ -414,14 +415,17 @@ def migrate_legacy():
 
 
 def ensure_data(backup=None):
-    """升级收尾：先补旧路径的，再补备份的。返回 ['ini','db']。
+    """升级收尾：先补备份的，再补旧路径的。返回 ['ini','db']。
 
-    backup 可显式指定备份目录（测试用），不传则按备份根里的最新一份；
-    显式指定可以避免机器上其它历史备份（如 /var/backups 里的残留）
-    抢先被当成数据源。
+    backup 可显式指定备份目录（安装脚本/测试用），不传则按备份根里的
+    最新一份。顺序必须是「备份优先」：显式备份是这次升级前刚做的那份，
+    是最权威的快照；要是让 migrate_legacy 先跑，它从别的角落翻出来的
+    陈年数据先把缺的文件填上，真正的备份反而因为"文件已存在"被跳过
+    （v20 回归踩过：机器 /var/backups 里留着一份真机安装时的备份，
+    测试就恢复出了别人家的数据）。
     """
-    got = migrate_legacy()
-    for k in restore_missing(backup):
+    got = restore_missing(backup)
+    for k in migrate_legacy():
         if k not in got:
             got.append(k)
     return got

@@ -2868,6 +2868,18 @@ with open(INI, 'w') as f:
 ck('①6 已有内容不被备份覆盖', 'ini' not in AD.ensure_data()
    and open(INI).read() == 'KEEPME')
 
+# 机器上可能留有别的安装（真机升级）写进 /var/backups 的备份，
+# 恢复时显式备份必须优先，旧路径迁移也不得去翻 /var/backups
+_ad = open(os.path.join(HERE, 'brl', 'appdata.py'), encoding='utf-8').read()
+_ens = _ad[_ad.index('def ensure_data('):_ad.index('def prune_backups(')]
+ck('①6b 显式备份先于旧路径迁移',
+   'got = restore_missing(backup)' in _ens
+   and _ens.index('got = restore_missing(backup)')
+   < _ens.index('migrate_legacy()'))
+ck('①6c migrate_legacy 不再翻 /var/backups',
+   '/var/backups' not in _ad[_ad.index('def migrate_legacy('):
+                             _ad.index('def ensure_data(')])
+
 # 旧兜底路径（~/.desktop-calendar）迁移
 H5 = os.path.join(TD, 'home5')
 os.makedirs(os.path.join(H5, '.desktop-calendar'))
@@ -3117,15 +3129,16 @@ ck('②5 菜单保留关于', u'关于' in _menu)
 ck('②6 菜单保留退出', u'退出软件' in _menu)
 ck('②7 旧的两个处理函数已删除',
    '_open_datetime' not in _mw and '_sync_time' not in _mw)
-ck('②8 齿轮菜单用统一浅色样式',
-   'setStyleSheet(T.menu_style())' in _menu)
+ck('②8 齿轮菜单用圆角卡片菜单', 'T.CardMenu(self)' in _menu)
 _ax = open(os.path.join(HERE, 'brl', 'appctx.py'), encoding='utf-8').read()
-ck('②9 托盘菜单用统一浅色样式',
-   'setStyleSheet(T.menu_style())' in _ax)
+ck('②9 托盘菜单用圆角卡片菜单', 'T.CardMenu()' in _ax)
 _th = open(os.path.join(HERE, 'brl', 'theme.py'), encoding='utf-8').read()
-ck('②10 menu_style 浅色三要素',
-   all(s in _th for s in ('background:#FFFFFF', '#DCE0E6', '#EDF4FE')) and
-   'QMenu::item:selected' in _th and 'QMenu::separator' in _th)
+ck('②10 menu_style 项样式三要素',
+   'background:transparent' in _th and 'QMenu::item:selected' in _th
+   and 'QMenu::separator' in _th and '#EDF4FE' in _th)
+ck('②11 CardMenu 自绘圆角底（半透明窗口 + fillPath）',
+   'class CardMenu' in _th and 'WA_TranslucentBackground' in _th
+   and 'addRoundedRect' in _th and 'fillPath(path, QColor(self.BG))' in _th)
 
 # ---------------------------------------------------------------- ③ 关于窗口
 ck('③1 关于窗口已独立实现', 'class AboutDialog' in _mw)
@@ -3172,6 +3185,48 @@ ck('③14 主页图标可点且走 openUrl 跳转',
 ck('③15 两个图标按钮尺寸一致',
    len(_icon_btns) >= 2 and len(set((b.width(), b.height())
                                     for b in _icon_btns[:2])) == 1)
+ck('③16 设置页左侧页签用统一卡片样式',
+   'T.tab_style()' in _st and 'QPushButton:checked' in _th)
+
+# ---------------------------------------------------------------- ④ 周一打头 / 圆角菜单（行为验证）
+import datetime                                        # noqa: E402
+from brl import theme as T                             # noqa: E402
+from brl.caltable import CalTable                      # noqa: E402
+
+cal = CalTable()
+cal.resize(560, 360)
+cal.set_month(datetime.date.today())
+cal.show()
+_app.processEvents()
+cal.grab()
+first7 = [d for d, _r in cal._cells][:7]
+ck('④1 月历首列是周一', len(first7) == 7 and first7[0].weekday() == 0,
+   first7[0].isoformat() if first7 else '')
+ck('④2 末列是周日', len(first7) == 7 and first7[6].weekday() == 6)
+ck('④3 表头文案周一打头', 'WEEK_HEAD = ' in open(
+    os.path.join(HERE, 'brl', 'caltable.py'), encoding='utf-8').read()
+    .split('\n')[0] or u"u'周一'" in open(os.path.join(HERE, 'brl', 'caltable.py'),
+                                         encoding='utf-8').read())
+cal.set_view('week')
+cal.set_selected(datetime.date.today())
+cal.grab()
+wk = [d for d, _r in cal._cells]
+ck('④4 周视图从该周周一开始', wk and wk[0].weekday() == 0,
+   wk[0].isoformat() if wk else '')
+cal.close()
+
+menu = T.CardMenu()
+menu.addAction(u'选项设置')
+menu.addAction(u'退出软件')
+menu.show()
+_app.processEvents()
+img = menu.grab().toImage()
+ck('④5 菜单四角透明（圆角生效，不是 QSS 空谈）',
+   img.pixelColor(0, 0).alpha() == 0 and img.pixelColor(img.width() - 1, 0).alpha() == 0,
+   'corner alpha=%d' % img.pixelColor(0, 0).alpha())
+ck('④6 菜单中部不透明（底色画上了）',
+   img.pixelColor(img.width() // 2, img.height() // 2).alpha() == 255)
+menu.close()
 
 print()
 print('结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))

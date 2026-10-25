@@ -2,9 +2,10 @@
 """主题配色（原创设计）与界面辅助工具。"""
 import os
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QPainter, QPixmap, QIcon, QFont
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtCore import Qt, QRectF
+from PyQt5.QtGui import (QColor, QPainter, QPixmap, QIcon, QFont, QPen,
+                         QPainterPath)
+from PyQt5.QtWidgets import QWidget, QMenu
 
 from . import data as D
 
@@ -205,21 +206,72 @@ def combo_style(compact=False, min_width=0):
 
 
 def menu_style():
-    """右键菜单 / 齿轮菜单的统一外观：与选项设置、关于窗口同一套浅色卡片。
+    """菜单项的统一外观：与选项设置、关于窗口同一套浅色卡片。
 
     系统原生菜单在深色桌面主题下是黑底、细窄、方角的，和软件自己这些
     浅色窗口放在一起很割裂。这里同样把每一态的前景色写死，避免被系统
     调色板带跑（悬停看不见字是同一个坑）。
+
+    底色刻意写成 transparent：菜单的底由 CardMenu 自己用圆角画，
+    否则顶层窗口那层不透明底色会把圆角以外的四个角露出来。
     """
     return (
-        'QMenu{background:#FFFFFF;border:1px solid #DCE0E6;border-radius:6px;'
-        'padding:6px 0;}'
+        'QMenu{background:transparent;border:none;padding:6px 0;}'
         'QMenu::item{padding:7px 30px 7px 24px;color:#202020;'
         'font-size:13px;background:transparent;}'
         'QMenu::item:selected{background:#EDF4FE;color:#202020;}'
         'QMenu::item:disabled{color:#B0B5BD;background:transparent;}'
         'QMenu::separator{height:1px;background:#E6E7E8;margin:5px 10px;}'
         'QMenu::indicator{width:16px;height:16px;left:8px;}')
+
+
+class CardMenu(QMenu):
+    """圆角浅色菜单（齿轮菜单、托盘菜单、视图菜单都用它）。
+
+    QMenu 是独立顶层窗口，光靠 QSS 的 border-radius 画不出圆角——窗口
+    本身还是方的，四个角会露出系统底色。所以这里走和自绘弹窗同一条路：
+    无边框 + 半透明背景，自己把圆角卡片画出来，圆角之外就是透明的。
+    菜单项仍交给 QMenu 自己画（先画底，再让父类把条目叠上来）。
+    """
+
+    RADIUS = 8
+    BG = '#FFFFFF'
+    BORDER = '#DCE0E6'
+
+    def __init__(self, parent=None):
+        QMenu.__init__(self, parent)
+        self.setWindowFlags(self.windowFlags() | Qt.FramelessWindowHint
+                            | Qt.NoDropShadowWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setStyleSheet(menu_style())
+
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        path = QPainterPath()
+        path.addRoundedRect(r, self.RADIUS, self.RADIUS)
+        p.fillPath(path, QColor(self.BG))
+        p.setPen(QPen(QColor(self.BORDER)))
+        p.drawPath(path)
+        p.end()
+        # 底画完再把条目交给父类：QMenu 的条目就是在 paintEvent 里画的
+        QMenu.paintEvent(self, ev)
+
+
+def tab_style(radius=8):
+    """选项设置左侧页签按钮：和菜单、关于窗口同一套浅色卡片。
+
+    之前这几颗按钮没有任何样式，落到 UOS 上就是系统默认的方角灰按钮，
+    夹在浅色卡片窗口里很突兀；选中态也看不出来，点没点中全靠猜。
+    """
+    return (
+        'QPushButton{background:#FFFFFF;color:#202020;'
+        'border:1px solid #DCE0E6;border-radius:%dpx;font-size:13px;}'
+        'QPushButton:hover{background:#F5F8FF;border-color:#A9CDF7;}'
+        'QPushButton:checked{background:#EDF4FE;color:#2F7BFF;'
+        'border-color:#A9CDF7;font-weight:bold;}'
+        'QPushButton:focus{outline:none;}' % radius)
 
 
 def font(size, bold=False, italic=False):

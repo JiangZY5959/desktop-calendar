@@ -308,6 +308,8 @@ class SettingsDialog(QDialog):
             b = QPushButton(name)
             b.setFixedSize(140, 36)
             b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet(T.tab_style())   # 与菜单、关于窗口同一套浅色卡片
             b.clicked.connect(lambda checked=False, i=i: self._switch(i))
             left.addWidget(b)
             self._tabs.append(b)
