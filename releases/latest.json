@@ -2,9 +2,9 @@
   "version": "1.4.6.1",
   "tag": "v1.4.6.1",
   "file": "desktop-calendar_1.4.6.1_arm64.deb",
-  "size": 103448,
-  "sha256": "97d6b427ef4b98c48cdbf148649d604c67d959579b84169740e7aab273be2a4a",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/194cb00296c04e306dd301ceded60cc159f746c7/releases/desktop-calendar_1.4.6.1_arm64.deb",
+  "size": 103504,
+  "sha256": "8b4135f41de57eb6652d459452e4d5b89463aaa58860d4ccdae0e2b39574223b",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/58ef54488d6b93a78aa34b206e1fb86162b0c681/releases/desktop-calendar_1.4.6.1_arm64.deb",
   "released": "2026-10-26",
-  "notes": "· 升级保数据改为两步：安装第一步把「设置」与「待办」各存成一个特殊命名的文件（user-settings-<用户>-<时间戳>.ini / user-todos-<用户>-<时间戳>.db），最后一步原样放回\n· 只认这次写下的指针，备份里留着旧数据也不会被翻出来\n· 程序开着也照读：用 SQLite 快照接口，-wal 里没并回主库的记录不会漏\n· 当前条数比存的多就保留当前的，不反被旧快照覆盖\n· 撤销 1.4.6.0 的合并恢复那套逻辑"
+  "notes": "· 升级保数据改为两步：安装第一步把「自定义设置」与「待办清单」各存成一个特殊命名的文件（user-settings-<用户>-<时间戳>.ini / user-todos-<用户>-<时间戳>.db），最后一步原样放回\n· 只认这次写下的指针，备份里留着旧数据也不会被翻出来\n· 程序开着也照读：用 SQLite 快照接口，-wal 里没并回主库的记录不会漏\n· 当前条数比存的多就保留当前的，不反被旧快照覆盖\n· 撤销 1.4.6.0 的合并恢复那套逻辑"
 }

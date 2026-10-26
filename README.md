@@ -15,7 +15,7 @@
 | 来源 | 安装包 | 平台 |
 |---|---|---|
 | GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.6.1_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.6.1/desktop-calendar_1.4.6.1_arm64.deb) | UOS / 飞腾 aarch64 |
-| GitCode 直链（国内） | [desktop-calendar_1.4.6.1_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/194cb00296c04e306dd301ceded60cc159f746c7/releases/desktop-calendar_1.4.6.1_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitCode 直链（国内） | [desktop-calendar_1.4.6.1_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/58ef54488d6b93a78aa34b206e1fb86162b0c681/releases/desktop-calendar_1.4.6.1_arm64.deb) | UOS / 飞腾 aarch64 |
 
 也可以在 GitHub 的 [Releases 页面](https://github.com/JiangZY5959/desktop-calendar/releases) 直接点附件下载。
 
@@ -31,7 +31,7 @@ sudo dpkg -i desktop-calendar.deb
 
 # 或 GitCode（国内更快）
 wget -O desktop-calendar.deb \
-  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/194cb00296c04e306dd301ceded60cc159f746c7/releases/desktop-calendar_1.4.6.1_arm64.deb
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/58ef54488d6b93a78aa34b206e1fb86162b0c681/releases/desktop-calendar_1.4.6.1_arm64.deb
 sudo dpkg -i desktop-calendar.deb
 ```
 

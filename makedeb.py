@@ -196,6 +196,8 @@ fi
 if [ -z "$UHOME" ]; then
     UHOME="/home/$U"
 fi
+# DC_HOME 只给自动化测试隔离用，正常安装不会设
+if [ -n "${DC_HOME:-}" ]; then UHOME="$DC_HOME"; fi
 UXAUTH="$UHOME/.Xauthority"
 # X 显示：UOS 走 abstract socket（/tmp/.X11-unix 是空的），有 socket 文件就照
 # 它取，没有就按 :0 来；到底连不连得上，由软件自己 XOpenDisplay 试过才知道。
