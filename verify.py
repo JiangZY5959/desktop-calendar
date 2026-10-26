@@ -38,6 +38,7 @@ SECTIONS = [
     ('v19', '检查更新'),
     ('v20', '升级保护与重启'),
     ('v21', '询问时机与关于窗口'),
+    ('v22', '升级数据保全与字色透明度'),
     ('data', '数据层自检'),
     ('e2e', '自启动端到端'),
     ('lint', '命名一致性'),
@@ -2873,8 +2874,8 @@ ck('①6 已有内容不被备份覆盖', 'ini' not in AD.ensure_data()
 _ad = open(os.path.join(HERE, 'brl', 'appdata.py'), encoding='utf-8').read()
 _ens = _ad[_ad.index('def ensure_data('):_ad.index('def prune_backups(')]
 ck('①6b 显式备份先于旧路径迁移',
-   'got = restore_missing(backup)' in _ens
-   and _ens.index('got = restore_missing(backup)')
+   'restore_missing(backup' in _ens
+   and _ens.index('restore_missing(backup')
    < _ens.index('migrate_legacy()'))
 ck('①6c migrate_legacy 不再翻 /var/backups',
    '/var/backups' not in _ad[_ad.index('def migrate_legacy('):
@@ -3617,4 +3618,239 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+# ===== [END SECTION] =====
+
+# ===== [SECTION v22] 升级数据保全与字色透明度 =====
+# -*- coding: utf-8 -*-
+"""第 27 轮专项验证：更新版本后待办与设置必须原封不动 + 字体色可调透明度。
+
+真正的病灶有三处，这里逐条钉死：
+
+① Store 一被 import 就会建库（STORE = Store()）。以前启动流程是
+  "先 import store 建空库，退出时才 ensure_data"，空库一旦落地，
+  恢复逻辑看到"文件在、不是 0 字节"就再也不敢覆盖——用户待办永久丢失。
+  现在 __main__ 在 import appctx/store 之前就先补数据。
+② 备份挑"最新"的会挑到空库（升级链路上真的出现过 0 条待办的备份），
+  导致恢复越恢复越空。现在按待办条数挑最富的那份。
+③ 恢复原来是"文件不存在才拷回去"，空库/finish 之后就没兜底了。
+  现在是"只增不减"的合并：缺几条补几条，一条都不删。
+"""
+import os
+import sqlite3
+import sys
+import tempfile
+import time
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import brltest_env as _ENV                  # noqa: E402
+
+_ENV.isolate('v22')
+
+ok, bad = [], []
+
+
+def ck(name, cond, extra=''):
+    (ok if cond else bad).append(name)
+    print(('PASS ' if cond else 'FAIL ') + name + ('  ' + str(extra) if extra else ''))
+
+
+TD = tempfile.mkdtemp(prefix='v22-')
+os.environ['HOME'] = os.path.join(TD, 'home')
+os.environ['DC_BACKUP_ROOT'] = os.path.join(TD, 'bk')
+os.makedirs(os.environ['HOME'])
+os.makedirs(os.environ['DC_BACKUP_ROOT'])
+
+from brl import appdata as AD               # noqa: E402
+
+DB = os.path.join(os.environ['XDG_DATA_HOME'], 'desktop-calendar', 'calendar.db')
+INI = os.path.join(os.environ['XDG_CONFIG_HOME'], 'desktop-calendar', 'calendar.ini')
+os.makedirs(os.path.dirname(DB))
+os.makedirs(os.path.dirname(INI))
+
+
+def seed(path, n, start=0):
+    cn = sqlite3.connect(path)
+    cn.executescript(AD._SCHEMA_DDL)
+    for i in range(n):
+        cn.execute('INSERT INTO todo(content,category,date,created) VALUES(?,?,?,?)',
+                   (u'待办%d' % (start + i), u'生活', '2026-10-%02d' % (1 + i),
+                    '2026-10-01 09:00:00'))
+    cn.commit()
+    cn.close()
+
+
+def keep_ini(text):
+    with open(INI, 'w') as f:
+        f.write(text)
+
+
+# ---------------------------------------------------------------- ① 启动自愈顺序
+_main = open(os.path.join(HERE, 'brl', '__main__.py'), encoding='utf-8').read()
+ck('①1 启动时先做数据自愈', 'AD.ensure_data()' in _main)
+# rindex：前面若干维护命令里也 import 了 appctx，这里要的是最后那段真正的启动
+ck('①2 自愈早于 store/appctx 的导入',
+   _main.index('AD.ensure_data()') < _main.rindex('from . import appctx'))
+ck('①3 自愈留下 restore.log 便于排查', 'restore.log' in _main)
+ck('①3b 启动时顺手拍近日快照', 'AD.auto_snapshot()' in _main)
+
+_ad = open(os.path.join(HERE, 'brl', 'appdata.py'), encoding='utf-8').read()
+ck('①4 新增 db_count（判断空库不看文件大小）', 'def db_count(' in _ad)
+ck('①5 新增 best_backup（挑最富的备份）', 'def best_backup(' in _ad)
+ck('①6 新增 merge_rows（只增不减合并）', 'def merge_rows(' in _ad)
+ck('①7 备份改用 SQLite 备份接口', 'cn.backup(out)' in _ad)
+
+# ---------------------------------------------------------------- ② 备份挑选
+seed(DB, 3)
+keep_ini('[ui]\ntheme=5\n')
+d, kinds = AD.make_backup()
+ck('②1 备份含库与设置', sorted(kinds) == ['db', 'ini'], kinds)
+# 再做一份"更新的空库"备份：按时间挑就会挑到它
+time.sleep(0.05)
+empty_dir, _k = AD.make_backup('upgrade-29991231-235959')
+os.remove(DB)
+seed(DB, 0)
+empty_dir, _k = AD.make_backup('upgrade-29991231-235959')
+ck('②2 空库备份确实 0 条', AD.db_count(os.path.join(empty_dir, 'calendar.db')) == 0)
+ck('②3 挑备份优先挑有数据的',
+   AD.db_count(os.path.join(AD.best_backup(), 'calendar.db')) == 3,
+   AD.best_backup())
+
+# ---------------------------------------------------------------- ③ 合并恢复
+AD.prune_backups(keep=9)
+os.remove(DB)
+seed(DB, 0)                                  # 模拟"Store 抢先建了个空库"
+ck('③1 空库 0 条', AD.db_count(DB) == 0)
+got = AD.ensure_data()
+ck('③2 空库被救回 3 条', AD.db_count(DB) == 3, AD.db_count(DB))
+ck('③3 救回来会报 db', 'db' in got, got)
+AD.ensure_data()
+ck('③4 反复自愈不产生重复', AD.db_count(DB) == 3, AD.db_count(DB))
+
+# 库还在、也有数据：普通启动绝不去动它
+os.remove(DB)
+seed(DB, 5, start=100)
+AD.ensure_data()
+ck('③5 有数据的库不会被备份塞回旧数据', AD.db_count(DB) == 5, AD.db_count(DB))
+
+# 升级收尾 merge=True：缺的补上、多的不删
+got = AD.ensure_data(merge=True)
+ck('③6 升级收尾合并补进备份独有的 3 条', AD.db_count(DB) == 8, AD.db_count(DB))
+AD.ensure_data(merge=True)
+ck('③7 合并幂等，不会越合越多', AD.db_count(DB) == 8, AD.db_count(DB))
+ck('③8 合并保留当前库原有内容',
+   AD.db_count(DB) == 8 and 'db' in got, (got, AD.db_count(DB)))
+
+# 库与设置都被删：两样都回来
+os.remove(DB)
+os.remove(INI)
+got = AD.ensure_data()
+ck('③9 库和设置同时丢失都能补回',
+   AD.db_count(DB) == 3 and os.path.isfile(INI) and 'theme=5' in open(INI).read(),
+   got)
+
+# 设置文件还在就绝不动它（用户改过的配置优先）
+keep_ini('KEEPME')
+ck('③10 已有的设置不被备份覆盖',
+   'ini' not in AD.ensure_data() and open(INI).read() == 'KEEPME')
+
+# 用户自己把待办删光后再升级/重启：绝不能把删掉的又变出来
+os.remove(DB)
+seed(DB, 3)
+cn = sqlite3.connect(DB)
+cn.execute('DELETE FROM todo')
+cn.commit()
+cn.close()
+ck('③11 删光后库为空但编号还在', AD.db_count(DB) == 0 and AD.db_max_id(DB) == 3,
+   (AD.db_count(DB), AD.db_max_id(DB)))
+AD.ensure_data(merge=True)
+ck('③12 用户删光的不会被"救"回来', AD.db_count(DB) == 0, AD.db_count(DB))
+AD.ensure_data()
+ck('③13 普通启动同样不复活', AD.db_count(DB) == 0, AD.db_count(DB))
+# 反过来：库被换成"编号从未分配"的新空库，必须救
+os.remove(DB)
+cn = sqlite3.connect(DB)
+cn.executescript(AD._SCHEMA_DDL)
+cn.commit()
+cn.close()
+ck('③14 新建空库编号是 0', AD.db_max_id(DB) == 0)
+AD.ensure_data()
+ck('③15 新建空库能救回备份里的待办', AD.db_count(DB) == 3, AD.db_count(DB))
+
+# ---------------------------------------------------------------- ④ 清理策略
+for i in range(7):
+    p = os.path.join(os.environ['DC_BACKUP_ROOT'], 'upgrade-2999010%d-000000' % i)
+    os.makedirs(p)
+    seed(os.path.join(p, 'calendar.db'), 0)
+AD.prune_backups(keep=5)
+ck('④1 只留 5 份', len(os.listdir(os.environ['DC_BACKUP_ROOT'])) <= 5,
+   os.listdir(os.environ['DC_BACKUP_ROOT']))
+ck('④2 待办最多的那份不会被清掉',
+   AD.db_count(os.path.join(AD.best_backup(), 'calendar.db')) == 3)
+
+ck('④3 平时也会留近日快照', 'def auto_snapshot(' in _ad)
+_before = set(os.listdir(os.environ['DC_BACKUP_ROOT']))
+_snap = AD.auto_snapshot()
+_after = set(os.listdir(os.environ['DC_BACKUP_ROOT']))
+ck('④4 库里没东西时不拍快照（免得空库挤掉好备份）',
+   AD.db_count(DB) > 0 and bool(_snap) == (_after != _before),
+   (_snap, len(_after - _before)))
+ck('④5 快照目录名带 auto- 前缀',
+   (not _snap) or os.path.basename(_snap).startswith('auto-'), _snap)
+
+# ---------------------------------------------------------------- ⑤ 安装脚本
+import makedeb as MD                        # noqa: E402
+
+ck('⑤1 升级收尾改调 --restore-best', '--restore-best' in MD.UPGRADER)
+ck('⑤2 调用带超时，避免万一开界面卡住安装',
+   'timeout 25' in MD.UPGRADER)
+ck('⑤3 拿不到 backup= 才回落到文件拷贝',
+   'fallback to file copy' in MD.UPGRADER)
+ck('⑤4 备份时连 -wal 一起带上',
+   '-wal' in MD.UPGRADER and 'DB-wal' in MD.UPGRADER)
+
+_qt = open(os.path.join(HERE, 'brl', '__main__.py'), encoding='utf-8').read()
+ck('⑤5 --restore-best 已登记为免 Qt 命令',
+   "'--restore-best': 'restore'" in _qt)
+msg, code = AD.cli('restore')
+ck('⑤6 CLI 输出 backup= 供脚本判断', 'backup=' in msg and code == 0, msg)
+
+# ---------------------------------------------------------------- ⑥ 字体色透明度
+from PyQt5.QtWidgets import QApplication   # noqa: E402
+
+app = QApplication.instance() or QApplication(sys.argv)
+from brl import store as S                 # noqa: E402
+from brl import settings as ST             # noqa: E402
+
+_d = dict((k, (lb, al)) for k, lb, al in ST.COLOR_DEFS)
+for _k in ('txtclr', 'weekclr', 'jiericlr'):
+    ck('⑥1 %s 带透明度' % _k, _d[_k][1] is True)
+
+dlg = ST.SettingsDialog(S.STORE, None)
+cur = {}
+for _k in ('txtclr', 'weekclr', 'jiericlr'):
+    cp = dlg._color_picks.get(_k)
+    cur[_k] = bool(cp is not None and getattr(cp, '_sl', None) is not None)
+ck('⑥2 三种字体色都有透明度滑杆', all(cur.values()), cur)
+
+cp = dlg._color_picks['txtclr']
+emitted = []
+cp.changed.connect(lambda k, v: emitted.append((k, v)))
+cp._sl.setValue(128)
+_app_ok = bool(emitted) and emitted[-1][0] == 'txtclr'
+ck('⑥3 拖滑杆写回 8 位 #AARRGGBB',
+   _app_ok and len(emitted[-1][1]) == 9 and emitted[-1][1][1:3] == '80',
+   emitted[-1:])
+ck('⑥4 颜色值可被主界面接受（6/8 位都合法）',
+   '#80FF0000'[1:] and len('#80FF0000'[1:]) == 8)
+
+src_st = open(os.path.join(HERE, 'brl', 'settings.py'), encoding='utf-8').read()
+ck('⑥5 设置页按 alpha 分支建控件', 'if alpha:' in src_st and 'ColorPick(' in src_st)
+ck('⑥6 色块先铺白底再叠色（半透明色也看得清）',
+   "p.setBrush(QColor('#FFFFFF'))" in src_st)
+
+if bad:
+    print(u'未通过：%s' % u'、'.join(bad))
+sys.exit(1 if bad else 0)
 # ===== [END SECTION] =====

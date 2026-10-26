@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, 'brl')
 APPID = 'com.desktop.calendar'
 PKG = 'desktop-calendar'
-VER = '1.4.5.2'
+VER = '1.4.6.0'
 OUT = os.path.join(ROOT, 'dist')
 APP_NAME = u'桌面悬浮日历'
 
@@ -407,6 +407,13 @@ do_prepare() {
             if cp -f "$d/$f" "$D/$f" 2>>"$LOG"; then n=$((n + 1)); fi
         fi
     done
+    # 程序正开着的时候，刚写完还没并回主库的记录在 -wal 里，
+    # 只拷 calendar.db 会少几条待办，所以把旁路文件也一起带上。
+    for w in "$DAT/$DB-wal" "$DAT/$DB-shm"; do
+        if [ -s "$w" ]; then
+            cp -f "$w" "$D/$(basename "$w")" 2>>"$LOG" || true
+        fi
+    done
     if [ "$n" = "0" ]; then
         rmdir "$D" 2>/dev/null || true
         say "backup: nothing to save"
@@ -425,6 +432,19 @@ do_prepare() {
 
 # 目标文件缺失或为空时才补，已经有内容的绝不覆盖
 do_restore() {
+    # 首选：让新版本自己来做"只增不减"的合并恢复。
+    # --restore-best 会挑待办条数最多的那份备份，缺什么补什么，一条都不会删
+    # ——比按文件拷贝更保险（库被换成空库也能救回来）。
+    # 老版本没有这个命令时不会打印 backup=，这里就往下面的拷贝兜底；
+    # 外面套 timeout 是防止万一它真去开界面，把安装卡死。
+    out=$(as_user "timeout 25 $LAUNCH --restore-best" 2>>"$LOG")
+    case "$out" in
+        *backup=*)
+            say "restore: done by --restore-best ($out)"
+            return 0
+            ;;
+    esac
+    say "restore: fallback to file copy"
     for pair in "$INI:$CFG" "$DB:$DAT"; do
         f="${pair%%:*}"; d="${pair#*:}"
         if [ -s "$d/$f" ]; then continue; fi

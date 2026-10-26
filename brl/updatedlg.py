@@ -638,7 +638,9 @@ class UpdateFlow(QObject):
         self._flush()
         try:
             from . import appdata as AD
-            got = AD.ensure_data()
+            # merge=True：只补缺的、一条不删。装完这段时间里万一库被换成
+            # 空库（安装器先删后装、或新旧进程抢着建库），这里还能兜住。
+            got = AD.ensure_data(merge=True)
             if got:
                 self._log(u'已从备份恢复：%s' % ','.join(got))
         except Exception:
