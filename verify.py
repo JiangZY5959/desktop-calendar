@@ -2076,11 +2076,11 @@ ck('⑧.打过标记后不再问', AI.asked_before() and
 # 对勾图标存在且非空
 ck('⑧.自绘对勾图标就位', os.path.getsize(
     os.path.join(OUT, 'brl', 'resources', 'icons', 'tool_check.png')) > 50)
-# 首启补问只在真安装路径下触发
-ck('⑧.首启补问有 /opt/apps 守卫', '_installed' in
+# 启动路径永不补问（开机自启只在安装时问一次，装完想改去设置页）
+ck('⑧.程序启动不再弹自启询问', '_ask_autostart_once' not in
    open(os.path.join(OUT, 'brl', 'mainwin.py'), encoding='utf-8').read() and
-   "'/opt/apps'" in open(os.path.join(OUT, 'brl', 'mainwin.py'),
-                         encoding='utf-8').read())
+   'singleShot(900' not in
+   open(os.path.join(OUT, 'brl', 'mainwin.py'), encoding='utf-8').read())
 # main() 全链路：确定后输出 autostart/run 两行（假对话框模拟点击）
 class _FakeDlg(object):
     def __init__(self, ask_run, parent=None):
@@ -3072,14 +3072,15 @@ _i_quit = _ctx.index('def quit(')
 ck('①7 退出时兜底标记已问过',
    'mark_asked()' in _ctx[_i_quit:])
 
-# 首启补问：问过就跳过，且弹过之后无论如何都会落标记
+# 启动路径永不补问：开机自启只在安装时问一次（postinst 负责），此后想改
+# 去「选项设置 → 基础设置 → 开机启动桌面日历」勾选
 _mw = open(os.path.join(HERE, 'brl', 'mainwin.py'), encoding='utf-8').read()
-_i_once = _mw.index('def _ask_autostart_once(')
-_once = _mw[_i_once:_mw.index('def _screen(', _i_once)]
-ck('①8 补问前先看是否问过', 'asked_before()' in _once)
-ck('①9 补问后一定落标记', 'mark_asked()' in _once)
-ck('①10 只在真安装路径补问', 'self._installed()' in _once
-   and "'/opt/apps'" in _mw)
+ck('①8 程序启动不再弹自启询问',
+   '_ask_autostart_once' not in _mw and 'singleShot(900' not in _mw)
+ck('①9 安装时仍会问一次（仅首装）',
+   '--ask-install' in MD.POSTINST and 'ASKED=1' in _up)
+ck('①10 启动补问相关方法已全部移除',
+   'asked_before()' not in _mw and 'mark_asked()' not in _mw)
 
 # 键名必须跨进程一致：Qt 写 general/* 会落成 [%General] 段，
 # 下次启动再按 general/* 读就是空的——"每次打开都问一遍"就是这么来的。
@@ -3117,6 +3118,17 @@ _apply = _ctx[_i_apply:_ctx.index('def migrate_ini_group(')
              else _i_apply + 1200]
 ck('①19 没记过时不删已有自启项',
    'autostart_path()' in _apply and 'v is None' in _apply)
+
+# 启动即锁定：安装/更新/重启/重开后默认锁住，首次显示后落实一次
+ck('①20 初始状态为锁定', '_locked = True' in _mw)
+_i_show = _mw.index('def showEvent(')
+ck('①21 首次显示后落地锁定',
+   '_lock_shown' in _mw and '_apply_lock_flags' in _mw[_i_show:_i_show + 400])
+# 设置页颜色标签：星期标题栏背景颜色（不再叫周末背景颜色）
+_setsrc = open(os.path.join(HERE, 'brl', 'settings.py'),
+               encoding='utf-8').read()
+ck('①22 颜色名为星期标题栏背景颜色', u'星期标题栏背景颜色' in _setsrc)
+ck('①23 不再叫周末背景颜色', u'周末背景颜色' not in _setsrc)
 
 # ---------------------------------------------------------------- ② 齿轮菜单
 _i_menu = _mw.index('def _menu(')

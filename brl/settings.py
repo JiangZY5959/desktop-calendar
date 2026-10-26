@@ -7,7 +7,7 @@
 - 设置第一周起点（第几周规则）
 - 日历字体大小 / 清单字体大小
 - 日历字体颜色 / 星期标题栏字体颜色 / 节日字体颜色（无透明度）
-- 今日背景 / 窗口背景 / 格子背景 / 周末背景 颜色（含透明度滑杆）
+- 今日背景 / 窗口背景 / 格子背景 / 星期标题栏背景 颜色（含透明度滑杆）
 - 默认设置（恢复当前主题默认）
 """
 import datetime
@@ -91,7 +91,7 @@ COLOR_DEFS = [
     ('todayclr',   u'今日背景颜色', True),
     ('mainbg',     u'窗口背景颜色', True),
     ('gridbg',     u'格子背景颜色', True),
-    ('weekgridbg', u'周末背景颜色', True),
+    ('weekgridbg', u'星期标题栏背景颜色', True),
     ('borderout',  u'外边框颜色', True),
     ('borderin',   u'内边框颜色', True),
 ]
@@ -441,7 +441,7 @@ class SettingsDialog(QDialog):
         rowb1.addStretch(1)
         lay.addLayout(rowb1)
 
-        # 背景颜色（带透明度）：格子 / 周末格子
+        # 背景颜色（带透明度）：格子 / 星期标题栏
         rowb2 = QHBoxLayout()
         for key, label, alpha in COLOR_DEFS[5:7]:
             rowb2.addWidget(QLabel(label + ':'))

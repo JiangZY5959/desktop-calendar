@@ -20,7 +20,7 @@ from .settings import SettingsDialog
 from .updatedlg import UpdateFlow
 from . import x11fix as X11
 
-from . import APP_NAME, APPID, __version__ as APP_VER
+from . import APP_NAME, __version__ as APP_VER
 
 
 class AboutDialog(QDialog):
@@ -297,7 +297,10 @@ class MainWindow(QWidget):
         self._store = store
         self._ctx = ctx
         self._drag = None
-        self._locked = False
+        # 启动即锁定（贴桌面垫底）：安装、更新、重启、重开都默认锁住，
+        # 避免升级后窗口浮在别的软件上面。要挪位置时点一下锁图标解锁。
+        self._locked = True
+        self._lock_shown = False        # 首次显示后落地一次锁定状态
         self._pops = []                 # 提醒弹窗引用列表（防止被 GC 掉）
         self._tb_off = False            # 是否已向窗口管理器声明脱离任务栏
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -388,35 +391,10 @@ class MainWindow(QWidget):
         self._upd_t.start(3600 * 1000)
         QTimer.singleShot(5000, self._auto_update)
 
-        # 安装时没能弹窗问过的话，首次启动补问一次开机自启
-        QTimer.singleShot(900, self._ask_autostart_once)
-
-    # ------------------------------------------------ 首次启动补问
-    # 只有真正装到 /opt/apps 下才提示：源码目录里跑时不打扰，也不会在
-    # 自动化验证里冒出个模态窗把测试卡住。
-    def _installed(self):
-        return os.path.isdir(os.path.join(
-            '/opt/apps', APPID, 'files', 'brl'))
-
-    def _ask_autostart_once(self):
-        if not self._installed():
-            return
-        try:
-            from . import askinstall as AI
-            if AI.asked_before():
-                return
-            ans = AI.ask(ask_run=False, parent=self)
-            if ans is None:
-                return
-            auto, _run = ans
-            from . import appctx as AX
-            st = self._store.settings()
-            st.setValue('app/autostart', '1' if auto else '0')
-            st.sync()
-            AX.apply_autostart(self._store)
-            AI.mark_asked()
-        except Exception:
-            pass
+        # 开机自启只在安装时问一次（postinst 负责弹窗），程序启动
+        # 永不补问：之前这里有"首启补问"，一旦询问标记因为升级恢复、
+        # 备份覆盖等原因丢失，用户每次开机都会被问一遍（真实反馈）。
+        # 想改的话去「选项设置 → 基础设置 → 开机启动桌面日历」。
 
     # ------------------------------------------------ 尺寸 / 位置
     def _screen(self):
@@ -910,6 +888,11 @@ class MainWindow(QWidget):
     def showEvent(self, ev):
         QWidget.showEvent(self, ev)
         self._apply_skip_taskbar(_force=True)
+        if not self._lock_shown:
+            self._lock_shown = True
+            # 窗口映射后把锁定状态（含 X11 的 BELOW）落实一次；
+            # 延迟到事件循环，保证原生窗口句柄已就绪
+            QTimer.singleShot(0, self._apply_lock_flags)
 
     def _menu(self):
         m = T.CardMenu(self)      # 圆角浅色卡片菜单（QSS 圆角在菜单上不生效）

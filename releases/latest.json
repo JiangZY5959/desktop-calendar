@@ -1,10 +1,10 @@
 {
-  "version": "1.4.4.0",
-  "tag": "v1.4.4.0",
-  "file": "desktop-calendar_1.4.4.0_arm64.deb",
-  "size": 95352,
-  "sha256": "e41f9f2ddc7c3c08f66125fea0a7fb8193cbdeebc977af3af733e332d1653882",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/77357049033c81386005f3d889bc8a4d26806e27/releases/desktop-calendar_1.4.4.0_arm64.deb",
-  "released": "2026-10-25",
-  "notes": "· 月历改为周一打头\n· 齿轮菜单真正的圆角\n· 选项设置左侧页签换新\n· 修复升级数据恢复的优先级"
+  "version": "1.4.5.0",
+  "tag": "v1.4.5.0",
+  "file": "desktop-calendar_1.4.5.0_arm64.deb",
+  "size": 95376,
+  "sha256": "38f237762c0610f277e6e7a06cbfa0651e5bcac34f5270758cdeb12f32db4bb1",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/6acd6e0f82281677852cfa04798639d2737866a2/releases/desktop-calendar_1.4.5.0_arm64.deb",
+  "released": "2026-10-26",
+  "notes": "· 开机自启只在安装时问一次\n· 启动即锁定\n· 颜色名修正"
 }
