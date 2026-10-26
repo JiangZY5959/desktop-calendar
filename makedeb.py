@@ -12,9 +12,13 @@ import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, 'brl')
+# 「用户数据随身包」的源码。preinst 阶段包里的文件还没解开，用不了模块，
+# 所以把这份源码整段内联进安装脚本——装之前和装之后跑的是同一份代码。
+with open(os.path.join(SRC, 'carry.py'), 'r', encoding='utf-8') as _f:
+    CARRY_SRC = _f.read()
 APPID = 'com.desktop.calendar'
 PKG = 'desktop-calendar'
-VER = '1.4.6.0'
+VER = '1.4.6.1'
 OUT = os.path.join(ROOT, 'dist')
 APP_NAME = u'桌面悬浮日历'
 
@@ -96,12 +100,62 @@ Description: %(name)s（UOS / 飞腾 aarch64 原生重制版）
 
 PREINST = '''#!/bin/sh
 set -e
-LOG=/tmp/desktop-calendar-install.log
-# 升级前先把用户的待办库与设置另存一份。
-# 覆盖安装本身不会动 ~/.config 与 ~/.local/share，可一旦装到一半被打断，
-# 或者包管理器走了"先删再装"的路子，这份备份就是退路。
+# DC_LOG 只给自动化测试用：真机安装时 /tmp/desktop-calendar-install.log 归 root，
+# 测试以普通用户身份跑脚本时写不进去，会把 python 那一步整个跳过。
+LOG="${DC_LOG:-/tmp/desktop-calendar-install.log}"
+# ==================== 安装第一步：读出用户的设置与待办 ====================
+# 升级时只做一件事：把当前用户的「自定义设置」和「待办清单」读出来，
+# 分别另存成两个特殊命名的文件：
+#     user-settings-<用户>-<时间戳>.ini
+#     user-todos-<用户>-<时间戳>.db
+# 并写一个指针 user-carry-<用户>.stamp，记下这一趟存的是哪一组。
+#
+# 注意：preinst 跑的时候新包还没解开，包里的 brl/carry.py 还不存在，
+# 所以下面这段逻辑是打包时从 brl/carry.py 整段内联进来的（见文件头的
+# CARRY_SRC），与装完之后跑的是同一份源码，不会出现两套实现各说各话。
+#
+# 读的是活库：程序可能正开着、数据还在 -wal 里，所以用 SQLite 自己的
+# backup 接口取一致快照，而不是直接拷文件（直接拷会少几条待办）。
 if [ "$1" = "upgrade" ]; then
-    /usr/bin/desktop-calendar-upgrade prepare "" "" "" "$LOG" 2>>"$LOG" || true
+    UC="${SUDO_USER:-}"
+    if [ -z "$UC" ] && [ -n "${PKEXEC_UID:-}" ]; then
+        UC="$(getent passwd "$PKEXEC_UID" 2>/dev/null | cut -d: -f1)"
+    fi
+    if [ -z "$UC" ]; then
+        UC="$(logname 2>/dev/null || true)"
+    fi
+    if [ -z "$UC" ] || [ "$UC" = "root" ]; then
+        UC="$(ls /home 2>/dev/null | head -n 1)"
+    fi
+    # DC_HOME / DC_BACKUP_ROOT 只给自动化测试隔离用，正常安装不会设
+    UH="${DC_HOME:-}"
+    if [ -z "$UH" ] && [ -n "$UC" ]; then
+        UH="$(getent passwd "$UC" 2>/dev/null | cut -d: -f6)"
+    fi
+    if [ -z "$UH" ]; then
+        UH="/home/$UC"
+    fi
+    if [ -n "${DC_BACKUP_ROOT:-}" ] && [ -d "$DC_BACKUP_ROOT" ] && [ -w "$DC_BACKUP_ROOT" ]; then
+        BK="$DC_BACKUP_ROOT"
+    elif [ -d /var/backups ] && [ -w /var/backups ]; then
+        BK=/var/backups/desktop-calendar
+    else
+        BK="$UH/.desktop-calendar-backup"
+    fi
+    echo "[$(date +%H:%M:%S)] preinst: user=$UC home=$UH root=$BK" >>"$LOG" 2>/dev/null || true
+    CAR="/tmp/desktop-calendar-carry.$$.py"
+    cat > "$CAR" <<'DC_CARRY_EOF'
+''' + CARRY_SRC + '''DC_CARRY_EOF
+    PY=/usr/bin/python3
+    if [ ! -x "$PY" ]; then
+        PY="$(command -v python3 || true)"
+    fi
+    if [ -n "$PY" ]; then
+        "$PY" "$CAR" save --home "$UH" --root "$BK" --user "$UC" >>"$LOG" 2>&1 || true
+    else
+        echo "preinst: no python3, nothing saved" >>"$LOG" 2>/dev/null || true
+    fi
+    rm -f "$CAR" 2>/dev/null || true
 fi
 #DEBHELPER#
 exit 0
@@ -124,7 +178,7 @@ fi
 # 不能用 [ x ] && cmd 的写法（条件为假时返回非 0 会直接中断安装）。
 APPID=com.desktop.calendar
 DSRC=/usr/share/applications/$APPID.desktop
-LOG=/tmp/desktop-calendar-install.log
+LOG="${DC_LOG:-/tmp/desktop-calendar-install.log}"
 : > "$LOG" 2>/dev/null || true
 
 # --- 真实安装用户：sudo/apt 安装时 SUDO_USER 才是桌面用户 ---
@@ -286,9 +340,10 @@ exit 0
 '''
 
 # 升级前后的收尾工具。单独成一个脚本，方便脱离 deb 单独调试：
-#   desktop-calendar-upgrade prepare <用户> <家目录> <显示> <日志>
 #   desktop-calendar-upgrade finish  <用户> <家目录> <显示> <日志>
 #   desktop-calendar-upgrade stop    <用户> <家目录> <显示> <日志>
+#   desktop-calendar-upgrade restore <用户> <家目录> <显示> <日志>
+# 存档那一步不在这里：它必须发生在"新包解开之前"，只能由 preinst 自己做。
 UPGRADER = r'''#!/bin/sh
 # 桌面悬浮日历 —— 升级前后的收尾。
 #
@@ -312,10 +367,8 @@ fi
 [ -z "$UHOME" ] && UHOME="/home/$U"
 [ -z "$UDISP" ] && UDISP=":0"
 [ -z "$LOG" ] && LOG="/dev/null"
-CFG="$UHOME/.config/desktop-calendar"
-DAT="$UHOME/.local/share/desktop-calendar"
-INI="calendar.ini"
-DB="calendar.db"
+# DC_HOME 只给自动化测试隔离用，正常安装不会设
+if [ -n "${DC_HOME:-}" ]; then UHOME="$DC_HOME"; fi
 # 真正要拉起来的程序（测试时可以换成别的，方便脱离真机验证）
 LAUNCH="${DC_LAUNCHER:-/usr/bin/desktop-calendar}"
 
@@ -393,78 +446,29 @@ dc_pids() {
     echo "$out"
 }
 
-do_prepare() {
-    BK=$(backup_root)
-    D="$BK/upgrade-$(date +%Y%m%d-%H%M%S)"
-    if ! mkdir -p "$D" 2>>"$LOG"; then
-        say "backup: cannot create $D"
-        return 0
-    fi
-    n=0
-    for pair in "$INI:$CFG" "$DB:$DAT"; do
-        f="${pair%%:*}"; d="${pair#*:}"
-        if [ -s "$d/$f" ]; then
-            if cp -f "$d/$f" "$D/$f" 2>>"$LOG"; then n=$((n + 1)); fi
-        fi
-    done
-    # 程序正开着的时候，刚写完还没并回主库的记录在 -wal 里，
-    # 只拷 calendar.db 会少几条待办，所以把旁路文件也一起带上。
-    for w in "$DAT/$DB-wal" "$DAT/$DB-shm"; do
-        if [ -s "$w" ]; then
-            cp -f "$w" "$D/$(basename "$w")" 2>>"$LOG" || true
-        fi
-    done
-    if [ "$n" = "0" ]; then
-        rmdir "$D" 2>/dev/null || true
-        say "backup: nothing to save"
-        return 0
-    fi
-    if [ -n "$U" ] && [ "$(id -u)" = "0" ] && getent passwd "$U" >/dev/null 2>&1; then
-        chown -R "$U" "$D" 2>>"$LOG" || true
-    fi
-    i=0
-    for o in $(ls -1r "$BK" 2>/dev/null); do
-        i=$((i + 1))
-        if [ "$i" -gt 5 ]; then rm -rf "$BK/$o" 2>/dev/null || true; fi
-    done
-    say "backup: $D ($n file)"
-}
-
-# 目标文件缺失或为空时才补，已经有内容的绝不覆盖
+# ==================== 安装最后一步：把两样东西放回去 ====================
+# preinst 存下的那两个文件，这里原样放回用户的配置目录与数据目录。
+# 只认指针（user-carry-<用户>.stamp）里记的时间戳——备份根目录里很可能还躺着
+# 上一次安装留下的旧组，翻错了就是把用户的待办换成几个月前的样子。
 do_restore() {
-    # 首选：让新版本自己来做"只增不减"的合并恢复。
-    # --restore-best 会挑待办条数最多的那份备份，缺什么补什么，一条都不会删
-    # ——比按文件拷贝更保险（库被换成空库也能救回来）。
-    # 老版本没有这个命令时不会打印 backup=，这里就往下面的拷贝兜底；
-    # 外面套 timeout 是防止万一它真去开界面，把安装卡死。
-    out=$(as_user "timeout 25 $LAUNCH --restore-best" 2>>"$LOG")
-    case "$out" in
-        *backup=*)
-            say "restore: done by --restore-best ($out)"
-            return 0
-            ;;
-    esac
-    say "restore: fallback to file copy"
-    for pair in "$INI:$CFG" "$DB:$DAT"; do
-        f="${pair%%:*}"; d="${pair#*:}"
-        if [ -s "$d/$f" ]; then continue; fi
-        for BK in "$DC_BACKUP_ROOT" /var/backups/desktop-calendar \
-                  "$UHOME/.desktop-calendar-backup"; do
-            if [ ! -d "$BK" ]; then continue; fi
-            for sub in $(ls -1r "$BK" 2>/dev/null); do
-                src="$BK/$sub/$f"
-                if [ ! -s "$src" ]; then continue; fi
-                mkdir -p "$d" 2>>"$LOG" || break
-                cp -f "$src" "$d/$f" 2>>"$LOG" || break
-                if [ -n "$U" ] && [ "$(id -u)" = "0" ] \
-                        && getent passwd "$U" >/dev/null 2>&1; then
-                    chown "$U" "$d/$f" 2>>"$LOG" || true
-                fi
-                say "restored: $f <- $src"
-                break 2
-            done
-        done
-    done
+    CARRY="${DC_APPDIR:-/opt/apps/com.desktop.calendar/files}/brl/carry.py"
+    if [ ! -f "$CARRY" ]; then
+        say "restore: $CARRY not found, nothing to do"
+        return 0
+    fi
+    PY=/usr/bin/python3
+    if [ ! -x "$PY" ]; then
+        PY="$(command -v python3 || true)"
+    fi
+    if [ -z "$PY" ]; then
+        say "restore: no python3"
+        return 0
+    fi
+    BK=$(backup_root)
+    # 以用户身份执行，文件落下来就是他自己的；退化成 root 执行时
+    # 由 carry 按 --owner 把属主交还，否则用户下次开程序写不进去。
+    out=$(as_user "$PY '$CARRY' load --home '$UHOME' --root '$BK' --user '$U' --owner '$U'" 2>>"$LOG")
+    say "restore: $out"
 }
 
 do_stop() {
@@ -524,13 +528,12 @@ do_finish() {
 }
 
 case "$ACT" in
-    prepare) do_prepare ;;
     finish)  do_finish ;;
     stop)    do_stop ;;
     restore) do_restore ;;
     pids)    dc_pids ;;
     *)
-        echo "usage: $0 prepare|finish|stop|restore|pids [user home display log]" >&2
+        echo "usage: $0 finish|stop|restore|pids [user home display log]" >&2
         exit 2
         ;;
 esac

@@ -7,9 +7,7 @@
 …）刻意不碰 Qt，安装脚本在没有图形环境时也能安全调用；其余的用到设置读写
 /弹窗的，用到时才 import，避免在装了新包的机器上因为环境不全而整条脚本挂掉。
 """
-import os
 import sys
-import time
 
 
 # 不需要 Qt 的维护动作：由 appdata 处理
@@ -18,7 +16,6 @@ _QTLESS = {
     '--instances': 'instances',
     '--backup': 'backup',
     '--ensure': 'ensure',
-    '--restore-best': 'restore',
     '--pid': 'pid',
 }
 
@@ -101,29 +98,6 @@ if __name__ == '__main__':
     handled, code = _dispatch(sys.argv[1:])
     if handled:
         sys.exit(code)
-    # 启动即自愈：必须赶在 brl.store 被 import 之前。
-    # store 在模块导入时就会把日历库打开（STORE = Store()），文件不在就
-    # 当场建一个空库；之后所有恢复逻辑看到"库文件在、而且不是 0 字节"，
-    # 就再也不敢用备份覆盖它了——用户待办等于永久丢失。这就是"更新完
-    # 待办没了"的那条路，所以补数据这件事得放在最前面。
-    try:
-        from . import appdata as AD
-        _got = AD.ensure_data()
-        # 半天一次的"近日快照"：升级之外的数据风险（误删、磁盘清理、
-        # 断电）也有得救。库是空的就不做，免得空库把好备份挤掉。
-        AD.auto_snapshot()
-        if _got:
-            # 留个痕：以后再遇到"升级完数据差点没了"，打开 restore.log 就知道
-            try:
-                from . import data as _D
-                with open(os.path.join(_D.data_dir(), 'restore.log'), 'a') as _f:
-                    _f.write('%s  startup restored=%s\n'
-                             % (time.strftime('%Y-%m-%d %H:%M:%S'),
-                                ','.join(_got)))
-            except Exception:
-                pass
-    except Exception:
-        pass
     from . import appctx
     code, _ctx = appctx.main()
     sys.exit(code)

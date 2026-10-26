@@ -5,7 +5,7 @@
 - 语言：Python 3 + PyQt5
 - 架构：aarch64（LoongArch / x86 只需重新打包，代码无架构相关分支）
 - 许可：MIT
-- 当前版本：**1.4.6.0**
+- 当前版本：**1.4.6.1**
 - 仓库：[GitHub](https://github.com/JiangZY5959/desktop-calendar) ｜ 国内镜像 [GitCode](https://gitcode.com/gcw_6ciOFeue/desktop-calendar)（**两处同步更新**，GitHub Release 附件下载更方便）
 
 ![主界面](screenshots/main.png)
@@ -14,8 +14,8 @@
 
 | 来源 | 安装包 | 平台 |
 |---|---|---|
-| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.6.0_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.6.0/desktop-calendar_1.4.6.0_arm64.deb) | UOS / 飞腾 aarch64 |
-| GitCode 直链（国内） | [desktop-calendar_1.4.6.0_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/ac47ec5a5d4fe16a6e64dca208ef127108281abf/releases/desktop-calendar_1.4.6.0_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.6.1_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.6.1/desktop-calendar_1.4.6.1_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitCode 直链（国内） | [desktop-calendar_1.4.6.1_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/194cb00296c04e306dd301ceded60cc159f746c7/releases/desktop-calendar_1.4.6.1_arm64.deb) | UOS / 飞腾 aarch64 |
 
 也可以在 GitHub 的 [Releases 页面](https://github.com/JiangZY5959/desktop-calendar/releases) 直接点附件下载。
 
@@ -26,12 +26,12 @@
 ```bash
 # GitHub
 wget -O desktop-calendar.deb \
-  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.6.0/desktop-calendar_1.4.6.0_arm64.deb
+  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.6.1/desktop-calendar_1.4.6.1_arm64.deb
 sudo dpkg -i desktop-calendar.deb
 
 # 或 GitCode（国内更快）
 wget -O desktop-calendar.deb \
-  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/ac47ec5a5d4fe16a6e64dca208ef127108281abf/releases/desktop-calendar_1.4.6.0_arm64.deb
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/194cb00296c04e306dd301ceded60cc159f746c7/releases/desktop-calendar_1.4.6.1_arm64.deb
 sudo dpkg -i desktop-calendar.deb
 ```
 
@@ -81,7 +81,10 @@ sudo dpkg -i desktop-calendar.deb
 - `deb` 遵循 UOS 应用规范，安装到 `/opt/apps/com.desktop.calendar/`
 
 ### 升级与数据安全
-- **升级时保留待办与设置**：升级前自动备份待办库与设置（root 安装放 `/var/backups/desktop-calendar`，否则在家目录 `~/.desktop-calendar-backup`，保留最近 5 份）；装完发现文件缺失或为空会自动补回来
+- **升级时保留待办与设置，只走两步**：安装第一步把当前用户的「自定义设置」与「待办清单」读出来，各存成一个特殊命名的文件——`user-settings-<用户>-<时间戳>.ini`、`user-todos-<用户>-<时间戳>.db`，并写下指针 `user-carry-<用户>.stamp`（root 安装放 `/var/backups/desktop-calendar`，否则在家目录 `~/.desktop-calendar-backup`，每个用户保留最近 3 组）；安装最后一步按指针把这两个文件原样放回
+- **只认这次存的那一组**：备份目录里还躺着上一次安装留下的旧数据，也不会被翻出来盖掉现在的待办
+- **读的是活库的一致快照**：程序还开着、部分数据尚未并回主库（在 `-wal` 里）时，用 SQLite 自己的 `backup` 接口取快照，不会少几条待办
+- **放回时留一条底线**：若当前库里的待办比存的那份更多（安装期间又记了事），以多的为准
 - **卸载、甚至彻底清除（purge）都不动用户数据**——重装或升级回来，待办和设置原样还在
 - **装完自动"关旧开新"**：升级脚本先请正在运行的旧版本**保存退出**（窗口位置、设置先落盘），等它真正退出后再把新版本拉起来；绝不会新旧两个进程同时读写同一份数据
 - **单实例接管**：手动再开一个日历时，也会先请旧实例退出，始终只有一个在跑
@@ -108,7 +111,8 @@ sudo dpkg -i desktop-calendar.deb
 ├── brl/                    主程序包
 │   ├── __main__.py         入口（含 --quit / --backup / --ensure 等维护参数）
 │   ├── appctx.py           应用上下文、托盘、自启动、桌面图标、信号优雅退出
-│   ├── appdata.py          升级数据保护：实例登记、备份恢复、旧路径迁移
+│   ├── appdata.py          实例登记、缺失补回、旧路径迁移
+│   ├── carry.py            用户数据随身包：升级时把设置与待办各存一个文件再放回
 │   ├── mainwin.py          主窗口：布局、主题应用、提醒检查、锁定
 │   ├── caltable.py         日历表格绘制（格子、待办、节日）
 │   ├── settings.py         选项设置对话框（基础 / 背景 / 检查更新）
@@ -160,10 +164,10 @@ python3 make_manifest.py      # 生成 releases/latest.json（版本清单）
 ## 安装
 
 ```bash
-sudo dpkg -i desktop-calendar_1.4.6.0_arm64.deb
+sudo dpkg -i desktop-calendar_1.4.6.1_arm64.deb
 ```
 
-首次安装会弹出**一个**询问窗口（是否开机自启、是否立即运行）；**升级覆盖安装不询问**，并自动完成：备份用户数据 → 请旧版本保存退出 → 补齐缺失的数据 → 打开新版本。
+首次安装会弹出**一个**询问窗口（是否开机自启、是否立即运行）；**升级覆盖安装不询问**，并自动完成：另存设置与待办两个文件 → 请旧版本保存退出 → 按指针把两个文件放回 → 打开新版本。
 
 卸载：
 

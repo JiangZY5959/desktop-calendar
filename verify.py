@@ -38,7 +38,7 @@ SECTIONS = [
     ('v19', '检查更新'),
     ('v20', '升级保护与重启'),
     ('v21', '询问时机与关于窗口'),
-    ('v22', '升级数据保全与字色透明度'),
+    ('v22', '用户数据随身包'),
     ('data', '数据层自检'),
     ('e2e', '自启动端到端'),
     ('lint', '命名一致性'),
@@ -2874,8 +2874,8 @@ ck('①6 已有内容不被备份覆盖', 'ini' not in AD.ensure_data()
 _ad = open(os.path.join(HERE, 'brl', 'appdata.py'), encoding='utf-8').read()
 _ens = _ad[_ad.index('def ensure_data('):_ad.index('def prune_backups(')]
 ck('①6b 显式备份先于旧路径迁移',
-   'restore_missing(backup' in _ens
-   and _ens.index('restore_missing(backup')
+   'got = restore_missing(backup)' in _ens
+   and _ens.index('got = restore_missing(backup)')
    < _ens.index('migrate_legacy()'))
 ck('①6c migrate_legacy 不再翻 /var/backups',
    '/var/backups' not in _ad[_ad.index('def migrate_legacy('):
@@ -2906,24 +2906,40 @@ noise = subprocess.Popen(['bash', '-c', 'M=desktop-calendar_1.4.1.0_arm64.deb; s
 time.sleep(0.6)
 ck('②1 终端里含包名的 shell 不算日历', not AD._is_ours(noise.pid))
 ck('②2 pid 1 永不识别', not AD._is_ours(1))
-ck('②3 空跑请求退出不误伤', AD.request_quit(timeout=0.5) == ([], []))
+# 真机上用户很可能正开着日历：这种情况下这条不能真去 quit 它，
+# 否则跑一次验证就把人家窗口关了。只在没有任何实例时才验"空跑是空操作"。
+if AD.running_pids():
+    ck('②3 空跑请求退出不误伤（真机有实例在跑，跳过）', True)
+else:
+    ck('②3 空跑请求退出不误伤', AD.request_quit(timeout=0.5) == ([], []))
 noise.kill()
 noise.wait()
 
 # ---------------------------------------------------------------- ③ 脚本契约
 import makedeb as MD
 MD_SRC = open(os.path.join(HERE, 'makedeb.py'), encoding='utf-8').read()
-ck('③1 preinst 升级前备份', 'prepare' in MD.PREINST)
-ck('③2 postinst 只在升级时收尾', 'if [ -n "$2" ]' in MD.POSTINST)
-ck('③3 postinst 收尾动作', 'finish "$U"' in MD.POSTINST)
-ck('③4 prerm 卸载才停实例', 'stop' in MD.PRERM and '!= "upgrade"' in MD.PRERM)
-ck('③5 postrm 不删用户数据', 'purge' in MD.POSTRM
+CARRY_SRC = open(os.path.join(HERE, 'brl', 'carry.py'), encoding='utf-8').read()
+ck('③1 preinst 只在升级时存档', '"$1" = "upgrade"' in MD.PREINST
+   and 'save --home' in MD.PREINST)
+ck('③2 preinst 内联了随身包源码', 'DC_CARRY_EOF' in MD.PREINST
+   and 'SET_PREFIX' in MD.PREINST and 'def save(' in MD.PREINST)
+ck('③3 内联源码与 brl/carry.py 逐字一致', CARRY_SRC in MD.PREINST)
+ck('③4 postinst 只在升级时收尾', 'if [ -n "$2" ]' in MD.POSTINST)
+ck('③5 postinst 最后一步是放回数据', 'desktop-calendar-upgrade finish "$U"' in MD.POSTINST)
+ck('③6 prerm 卸载才停实例', 'stop' in MD.PRERM and '!= "upgrade"' in MD.PRERM)
+ck('③7 postrm 不删用户数据', 'purge' in MD.POSTRM
    and '/home' not in MD.POSTRM and 'HOME' not in MD.POSTRM)
-ck('③6 收尾脚本按进程名识别', 'comm' in MD.UPGRADER)
+ck('③8 收尾脚本按进程名识别', 'comm' in MD.UPGRADER)
 _fi = MD.UPGRADER[MD.UPGRADER.index('do_finish() {'):]
 _k = _fi.index('kill -TERM')
-ck('③7 先关旧的再补数据', _fi.find('do_restore', _k) > _k)
-ck('③8 打包写入维护脚本', "'preinst', PREINST" in MD_SRC
+ck('③9 先关旧的再放回数据', _fi.find('do_restore', _k) > _k)
+ck('③10 收尾脚本只认指针不翻旧组',
+   'carry.py' in MD.UPGRADER and '--root' in MD.UPGRADER
+   and 'upgrade-' not in MD.UPGRADER and 'ls -1r' not in MD.UPGRADER)
+ck('③11 1.4.6.0 那套逻辑已彻底移除',
+   'restore-best' not in (MD.PREINST + MD.POSTINST + MD.UPGRADER)
+   and 'do_prepare' not in MD.UPGRADER and 'prepare)' not in MD.UPGRADER)
+ck('③12 打包写入维护脚本', "'preinst', PREINST" in MD_SRC
    and "'postrm', POSTRM" in MD_SRC)
 _debs = sorted(glob.glob(os.path.join(HERE, 'dist', '*.deb')))
 if _debs:
@@ -2932,16 +2948,28 @@ if _debs:
     subprocess.run(['dpkg-deb', '-e', _debs[-1], _ctl], capture_output=True)
     _miss = [n for n in ('preinst', 'postinst', 'prerm', 'postrm')
              if not os.path.isfile(os.path.join(_ctl, n))]
-    ck('③9 deb 内含四个维护脚本', not _miss, _miss)
+    ck('③13 deb 内含四个维护脚本', not _miss, _miss)
 else:
-    ck('③9 deb 内含四个维护脚本（暂无 deb，跳过）', True)
+    ck('③13 deb 内含四个维护脚本（暂无 deb，跳过）', True)
 
 # ---------------------------------------------------------------- ④ 端到端
+# 这一段跑的是打包后真正会进 deb 的那两个脚本，不是另写的仿制品：
+#   preinst（安装第一步：存两个文件）→ 数据被人为清掉 → finish（最后一步：放回）
+PRE_SH = os.path.join(TD, 'dc-preinst')
+with open(PRE_SH, 'w') as f:
+    f.write(MD.PREINST)
+os.chmod(PRE_SH, 0o755)
 UP_SH = os.path.join(TD, 'dc-upgrade')
 with open(UP_SH, 'w') as f:
     f.write(MD.UPGRADER)
 os.chmod(UP_SH, 0o755)
 LOG = os.path.join(TD, 'log')
+
+# 收尾脚本里 carry.py 的落点（真机上是 /opt/apps/com.desktop.calendar/files）
+APPD = os.path.join(TD, 'appfiles')
+os.makedirs(os.path.join(APPD, 'brl'))
+shutil.copy2(os.path.join(HERE, 'brl', 'carry.py'),
+             os.path.join(APPD, 'brl', 'carry.py'))
 
 H6 = os.path.join(TD, 'home6')
 XD6 = os.path.join(H6, '.local/share')
@@ -2968,23 +2996,67 @@ env6.update({'HOME': H6, 'XDG_DATA_HOME': XD6, 'XDG_CONFIG_HOME': XC6,
 BK6 = os.path.join(H6, 'bk')
 os.makedirs(BK6)
 env6['DC_BACKUP_ROOT'] = BK6
+# 家目录也钉死，免得脚本按 SUDO_USER 摸到真实用户目录
+env6['DC_HOME'] = H6
+env6['DC_APPDIR'] = APPD
+# 真机上这份日志是 root 写的，普通用户测试时追加会失败，
+# 而失败的命令替换会把整步 python 跳过去——必须指到自己目录里
+env6['DC_LOG'] = os.path.join(TD, 'install.log')
 _env_root = os.environ.get('DC_BACKUP_ROOT')
 
-r = subprocess.run(['sh', UP_SH, 'prepare', 'u20', H6, ':0', LOG],
-                   env=env6, capture_output=True, text=True)
-ck('④1 脚本完成升级前备份',
-   os.path.isdir(BK6) and len(os.listdir(BK6)) > 0)
+# 先放一组"很久以后"的假包：按文件名排序它会排在最前，
+# 只有真正认指针的实现才不会把它当成新数据放回去。
+_stale = os.path.join(BK6, 'user-todos-olduser-20301231-235959.db')
+_cn = sqlite3.connect(_stale)
+_cn.executescript(S.SCHEMA)
+_cn.execute("INSERT INTO todo(content,category,date,created) VALUES('陈年旧事','生活','2020-01-01','x')")
+_cn.commit()
+_cn.close()
+with open(os.path.join(BK6, 'user-settings-olduser-20301231-235959.ini'), 'w') as f:
+    f.write('[ui]\ntheme=1\n')
 
+# 旧实例先跑起来：preinst 要读的是"正开着的活库"
 old = subprocess.Popen([sys.executable, '-m', 'brl'], env=env6,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                        start_new_session=True)
 _t0 = time.time()
 while time.time() - _t0 < 25 and not os.path.isfile(PID6):
     time.sleep(0.2)
-ck('④2 旧实例已登记自己', os.path.isfile(PID6), old.poll())
+ck('④1 旧实例已登记自己', os.path.isfile(PID6), old.poll())
 
+# ===== 安装第一步 =====
+r = subprocess.run(['sh', PRE_SH, 'upgrade', '1.4.5.2'], env=env6,
+                   capture_output=True, text=True, timeout=120)
+_nm = os.listdir(BK6)
+_set = [f for f in _nm if f.startswith('user-settings-') and f.endswith('.ini')
+        and 'olduser' not in f]
+_todo = [f for f in _nm if f.startswith('user-todos-') and f.endswith('.db')
+         and 'olduser' not in f]
+ck('④2 第一步存下"设置"文件', len(_set) == 1, _nm)
+ck('④3 第一步存下"待办"文件', len(_todo) == 1, _nm)
+
+
+def _stamp(name):
+    # 文件名尾部的 YYYYMMDD-HHMMSS（去掉扩展名后取最后 15 个字符）
+    return name.rsplit('.', 1)[0][-15:]
+
+
+_s1 = _stamp(_set[0]) if _set else ''
+_s2 = _stamp(_todo[0]) if _todo else ''
+ck('④4 两个文件共用同一个时间戳', bool(_s1) and _s1 == _s2, (_s1, _s2))
+_stamp = _s1
+_ptrs = [f for f in _nm if f.startswith('user-carry-') and f.endswith('.stamp')]
+ck('④5 指针记下的是这一组',
+   _ptrs and open(os.path.join(BK6, _ptrs[0])).read().strip() == _stamp, _ptrs)
+ck('④6 存下的是活库的一致快照（程序正开着）',
+   _todo and todos(os.path.join(BK6, _todo[0])) == 4,
+   todos(os.path.join(BK6, _todo[0])) if _todo else 'no db')
+
+# ===== 数据被清掉 =====
 os.remove(DB6)
 os.remove(INI6)
+
+# ===== 安装最后一步 =====
 env7 = dict(env6)
 env7['DC_LAUNCHER'] = LAUNCH
 r = subprocess.run(['sh', UP_SH, 'finish', 'u20', H6, ':0', LOG],
@@ -2993,13 +3065,18 @@ _gone = old.poll() is not None
 if not _gone:
     time.sleep(2)
     _gone = old.poll() is not None
-ck('④3 旧实例已关闭', _gone, old.poll())
-ck('④4 旧实例自己清理了登记', not os.path.isfile(PID6))
-ck('④5 待办被恢复', todos(DB6) == 4, todos(DB6))
+ck('④7 旧实例已关闭', _gone, old.poll())
+ck('④8 旧实例自己清理了登记', not os.path.isfile(PID6))
+ck('④9 最后一步把待办放回去了', todos(DB6) == 4, todos(DB6))
 # QSettings 写 ini 时键里的 / 会变成 \（ui\theme=5），所以只看值
-ck('④6 设置被恢复', 'theme=5' in open(INI6).read(),
+ck('④10 最后一步把设置放回去了', 'theme=5' in open(INI6).read(),
    open(INI6).read()[:120])
-ck('④7 新版本被拉起',
+ck('④11 没有误用备份里的陈年旧组', '陈年旧事' not in
+   subprocess.run(['/usr/bin/python3', '-c',
+                   'import sqlite3,sys;print(sqlite3.connect(sys.argv[1]).execute('
+                   '"select group_concat(content) from todo").fetchone()[0])', DB6],
+                  capture_output=True, text=True).stdout)
+ck('④12 新版本被拉起',
    os.path.isfile(LAUNCHED) and 'DISPLAY=:0' in open(LAUNCHED).read(),
    open(LAUNCHED).read() if os.path.isfile(LAUNCHED) else '')
 os.environ['DC_BACKUP_ROOT'] = _env_root
@@ -3251,6 +3328,238 @@ ck('④5 菜单四角透明（圆角生效，不是 QSS 空谈）',
 ck('④6 菜单中部不透明（底色画上了）',
    img.pixelColor(img.width() // 2, img.height() // 2).alpha() == 255)
 menu.close()
+
+print()
+print('结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))
+if bad:
+    print('未通过:')
+    for n in bad:
+        print(' - ' + n)
+sys.exit(1 if bad else 0)
+# ===== [END SECTION] =====
+
+
+# ===== [SECTION v22] 用户数据随身包 =====
+# -*- coding: utf-8 -*-
+"""第 31 轮专项验证：升级时把「自定义设置」与「待办清单」各存一个文件再放回。
+
+这一节的立场：升级只干两件事——
+  安装第一步：读用户目录，另存 user-settings-<用户>-<时间戳>.ini
+              与 user-todos-<用户>-<时间戳>.db，并写下指针；
+  安装最后一步：按指针把这两个文件放回去，别的什么都不碰。
+
+覆盖：
+  ① 命名与指针          ② 存放（活库快照 / 空数据不写指针）
+  ③ 放回（救回 / 不覆盖更多 / 清 -wal / force）
+  ④ 只认指针，不翻旧组  ⑤ 保留份数、跨用户名回落、退出码
+  ⑥ 与安装脚本的耦合（内联源码、时序、版本号）
+"""
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import brltest_env as _ENV
+_ENV.isolate('v22')
+from brl import carry as C          # noqa: E402
+
+ok, bad = [], []
+
+
+def ck(name, cond, extra=''):
+    (ok if cond else bad).append(name)
+    print(('PASS ' if cond else 'FAIL ') + name + ('  ' + str(extra) if extra else ''))
+
+
+TD = tempfile.mkdtemp(prefix='v22-')
+
+
+def mkhome(tag, n=3, theme=5):
+    """造一个"用户目录"：设置 + n 条待办。返回 (home, cfg, dat)。"""
+    home = os.path.join(TD, tag)
+    cfg, dat = C.home_dirs(home)
+    for d in (cfg, dat):
+        if not os.path.isdir(d):
+            os.makedirs(d)
+    with open(os.path.join(cfg, C.INI), 'w') as f:
+        f.write('[ui]\ntheme=%d\n' % theme)
+    cn = sqlite3.connect(os.path.join(dat, C.DB))
+    cn.execute('CREATE TABLE IF NOT EXISTS todo(id INTEGER PRIMARY KEY AUTOINCREMENT,'
+               ' content TEXT, category TEXT, date TEXT, created TEXT)')
+    for i in range(n):
+        cn.execute('INSERT INTO todo(content,category,date,created) VALUES(?,?,?,?)',
+                   (u'待办%d' % (i + 1), u'生活', '2026-10-26', 'x'))
+    cn.commit()
+    cn.close()
+    return home, cfg, dat
+
+
+def rows(path):
+    if not os.path.isfile(path):
+        return -1
+    cn = sqlite3.connect(path)
+    try:
+        return cn.execute('SELECT COUNT(*) FROM todo').fetchone()[0]
+    finally:
+        cn.close()
+
+
+def run(*args):
+    p = subprocess.run([sys.executable, os.path.join(HERE, 'brl', 'carry.py')] + list(args),
+                       capture_output=True, text=True)
+    return p
+
+
+# ---------------------------------------------------------------- ① 命名与指针
+ck('①1 设置文件命名', C.names('uos', '20261026-170108')[0]
+   == 'user-settings-uos-20261026-170108.ini', C.names('uos', '20261026-170108')[0])
+ck('①2 待办文件命名', C.names('uos', '20261026-170108')[1]
+   == 'user-todos-uos-20261026-170108.db', C.names('uos', '20261026-170108')[1])
+_s = C.new_stamp()
+ck('①3 时间戳格式 YYYYMMDD-HHMMSS', len(_s) == 15 and _s[8] == '-'
+   and _s[:8].isdigit() and _s[9:].isdigit(), _s)
+_bad = C.names('a b/c', '20260101-010101')[0]
+ck('①4 用户名里的怪字符被替换', ' ' not in _bad and '/' not in _bad, _bad)
+
+# ---------------------------------------------------------------- ② 存放
+H1, CFG1, DAT1 = mkhome('h1', 3, 5)
+R1 = os.path.join(TD, 'bk1')
+os.makedirs(R1)
+r = C.save(CFG1, DAT1, R1, 'uos')
+ck('②1 存下设置', r['ini'] == 1, r)
+ck('②2 存下待办', r['db'] == 1 and r.get('rows') == 3, r)
+ck('②3 两个文件都在', os.path.isfile(os.path.join(R1, C.names('uos', r['stamp'])[0]))
+   and os.path.isfile(os.path.join(R1, C.names('uos', r['stamp'])[1])),
+   sorted(os.listdir(R1)))
+ck('②4 指针写下这一组', C.read_stamp(R1, 'uos') == r['stamp'], C.read_stamp(R1, 'uos'))
+ck('②5 只有一组时不误删', len(C.pairs(R1, 'uos')) == 1)
+
+# 活库：数据还在 -wal 里（进程没关就退出），直接 cp 会少；backup 不会
+H2, CFG2, DAT2 = mkhome('h2', 0)
+DB2 = os.path.join(DAT2, C.DB)
+_py = ('import sqlite3,os,sys\n'
+       'p=sys.argv[1]\n'
+       'c=sqlite3.connect(p)\n'
+       'c.execute("PRAGMA journal_mode=wal")\n'
+       'c.execute("INSERT INTO todo(content,category,date,created) VALUES(\'未落盘\',\'生活\',\'2026-10-26\',\'x\')")\n'
+       'c.commit()\n'
+       'os._exit(0)\n')
+subprocess.run([sys.executable, '-c', _py, DB2])
+ck('②6 造出了 -wal（数据还没并回主库）', os.path.isfile(DB2 + '-wal')
+   and os.path.getsize(DB2 + '-wal') > 0)
+R2 = os.path.join(TD, 'bk2')
+os.makedirs(R2)
+r2 = C.save(CFG2, DAT2, R2, 'uos')
+ck('②7 活库快照把 -wal 里的记录也带上', r2.get('rows') == 1, r2)
+
+# 用户还没开始用：不写指针，免得最后一步拿空包去覆盖
+H3 = os.path.join(TD, 'h3')
+CFG3, DAT3 = C.home_dirs(H3)
+R3 = os.path.join(TD, 'bk3')
+os.makedirs(R3)
+r3 = C.save(CFG3, DAT3, R3, 'uos')
+ck('②8 什么都没存时不写指针', r3['ini'] == 0 and r3['db'] == 0
+   and C.read_stamp(R3, 'uos') is None, r3)
+ck('②9 空包时 load 是空操作', C.load(CFG3, DAT3, R3, 'uos')['stamp'] is None)
+
+# ---------------------------------------------------------------- ③ 放回
+os.remove(os.path.join(CFG1, C.INI))
+os.remove(os.path.join(DAT1, C.DB))
+r = C.load(CFG1, DAT1, R1, 'uos')
+ck('③1 设置被放回', r['ini'] == 1 and 'theme=5' in open(os.path.join(CFG1, C.INI)).read(), r)
+ck('③2 待办被放回', r['db'] == 1 and rows(os.path.join(DAT1, C.DB)) == 3, rows(os.path.join(DAT1, C.DB)))
+ck('③3 放回后指针还在', C.read_stamp(R1, 'uos') == r['stamp'])
+
+# 安装期间用户又记了事：当前比存的多，不许盖回去
+cn = sqlite3.connect(os.path.join(DAT1, C.DB))
+for i in range(2):
+    cn.execute("INSERT INTO todo(content,category,date,created) VALUES('新记的','生活','2026-10-27','x')")
+cn.commit()
+cn.close()
+r = C.load(CFG1, DAT1, R1, 'uos')
+ck('③4 当前条数更多时保留当前', r['db'] == 0 and r['kept_current'] == 5
+   and rows(os.path.join(DAT1, C.DB)) == 5, r)
+r = C.load(CFG1, DAT1, R1, 'uos', force=True)
+ck('③5 force 时照放不误', r['db'] == 1 and rows(os.path.join(DAT1, C.DB)) == 3, r)
+
+# 换库必须清掉旧库的 -wal/-shm，否则 SQLite 会把上一份日志回放进新库
+for suf in ('-wal', '-shm'):
+    with open(os.path.join(DAT1, C.DB + suf), 'w') as f:
+        f.write('stale')
+C.load(CFG1, DAT1, R1, 'uos', force=True)
+ck('③6 换库前清掉 -wal/-shm',
+   not os.path.exists(os.path.join(DAT1, C.DB + '-wal'))
+   and not os.path.exists(os.path.join(DAT1, C.DB + '-shm')))
+
+# ---------------------------------------------------------------- ④ 只认指针
+# 备份里塞一组"2030 年"的假包：按文件名排序它最靠前，
+# 只有真按指针取的实现才不会把它放回去
+_d170 = os.path.join(R1, C.TODO_PREFIX + 'olduser-20301231-235959.db')
+cn = sqlite3.connect(_d170)
+cn.execute('CREATE TABLE todo(id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT,'
+           ' category TEXT, date TEXT, created TEXT)')
+cn.execute("INSERT INTO todo(content,category,date,created) VALUES('陈年旧事','生活','2020-01-01','x')")
+cn.commit()
+cn.close()
+with open(os.path.join(R1, C.SET_PREFIX + 'olduser-20301231-235959.ini'), 'w') as f:
+    f.write('[ui]\ntheme=1\n')
+os.remove(os.path.join(DAT1, C.DB))
+C.load(CFG1, DAT1, R1, 'uos')
+ck('④1 有指针时不用"最新文件名"那组', rows(os.path.join(DAT1, C.DB)) == 3
+   and '陈年旧事' not in open(os.path.join(DAT1, C.DB), 'rb').read().decode('utf-8', 'ignore'),
+   rows(os.path.join(DAT1, C.DB)))
+ck('④2 设置也没被旧组带走',
+   'theme=5' in open(os.path.join(CFG1, C.INI)).read())
+
+# ---------------------------------------------------------------- ⑤ 份数、跨用户名、退出码
+R5 = os.path.join(TD, 'bk5')
+os.makedirs(R5)
+for i in range(5):
+    C.save(CFG1, DAT1, R5, 'uos', stamp='2026102%d-10000%d' % (i, i))
+ck('⑤1 只保留最近 3 组', len(C.pairs(R5, 'uos')) == 3, len(C.pairs(R5, 'uos')))
+ck('⑤2 留的是最新那 3 组',
+   [k[-15:] for k, _i, _d in C.pairs(R5, 'uos')]
+   == ['20261024-100004', '20261023-100003', '20261022-100002'],
+   [k for k, _i, _d in C.pairs(R5, 'uos')])
+
+# 安装器两段脚本各自探测用户，名字偶尔对不上：load 要不限用户名再找一次
+os.remove(os.path.join(DAT1, C.DB))
+r = C.load(CFG1, DAT1, R1, 'anotheruser')
+ck('⑤3 用户名对不上也能找回', rows(os.path.join(DAT1, C.DB)) == 3, r)
+
+p = run('load', '--home', os.path.join(TD, 'nohome'), '--root', os.path.join(TD, 'nobk'),
+        '--user', 'uos')
+ck('⑤4 没有包时退出码 2（无事可做）', p.returncode == 2, p.returncode)
+p = run('save', '--home', H1, '--root', os.path.join(TD, 'bk6'), '--user', 'uos')
+ck('⑤5 命令行输出可解析', 'action=save' in p.stdout and 'ini=1' in p.stdout
+   and 'db=1' in p.stdout, p.stdout.strip())
+
+# ---------------------------------------------------------------- ⑥ 与安装脚本的耦合
+import makedeb as MD          # noqa: E402
+CARRY_SRC = open(os.path.join(HERE, 'brl', 'carry.py'), encoding='utf-8').read()
+ck('⑥1 版本号 1.4.6.1', MD.VER == '1.4.6.1'
+   and __import__('brl').__version__ == '1.4.6.1', MD.VER)
+ck('⑥2 preinst 内联的就是这份源码', CARRY_SRC in MD.PREINST)
+_i = MD.PREINST.index('save --home')
+ck('⑥3 存档在 preinst 里、且早于收尾标记', _i > 0
+   and _i < MD.PREINST.index('#DEBHELPER#'))
+ck('⑥4 preinst 只在升级时动', '"$1" = "upgrade"' in MD.PREINST)
+ck('⑥5 postinst 最后一步放回',
+   MD.POSTINST.rindex('desktop-calendar-upgrade finish') > 0
+   and MD.POSTINST.rindex('finish') < MD.POSTINST.rindex('#DEBHELPER#'))
+ck('⑥6 收尾脚本用同一份 carry.py', 'brl/carry.py' in MD.UPGRADER
+   and "' load " in MD.UPGRADER)
+ck('⑥7 收尾脚本不再翻 upgrade-* 目录',
+   'upgrade-' not in MD.UPGRADER and 'ls -1r' not in MD.UPGRADER)
+ck('⑥8 1.4.6.0 的逻辑已清空',
+   'restore-best' not in (MD.PREINST + MD.POSTINST + MD.UPGRADER + MD.PRERM + MD.POSTRM)
+   and 'do_prepare' not in MD.UPGRADER)
+ck('⑥9 carry.py 进了包', os.path.isfile(os.path.join(HERE, 'brl', 'carry.py')))
 
 print()
 print('结果: PASS=%d FAIL=%d' % (len(ok), len(bad)))
@@ -3618,239 +3927,4 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
-# ===== [END SECTION] =====
-
-# ===== [SECTION v22] 升级数据保全与字色透明度 =====
-# -*- coding: utf-8 -*-
-"""第 27 轮专项验证：更新版本后待办与设置必须原封不动 + 字体色可调透明度。
-
-真正的病灶有三处，这里逐条钉死：
-
-① Store 一被 import 就会建库（STORE = Store()）。以前启动流程是
-  "先 import store 建空库，退出时才 ensure_data"，空库一旦落地，
-  恢复逻辑看到"文件在、不是 0 字节"就再也不敢覆盖——用户待办永久丢失。
-  现在 __main__ 在 import appctx/store 之前就先补数据。
-② 备份挑"最新"的会挑到空库（升级链路上真的出现过 0 条待办的备份），
-  导致恢复越恢复越空。现在按待办条数挑最富的那份。
-③ 恢复原来是"文件不存在才拷回去"，空库/finish 之后就没兜底了。
-  现在是"只增不减"的合并：缺几条补几条，一条都不删。
-"""
-import os
-import sqlite3
-import sys
-import tempfile
-import time
-
-os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-import brltest_env as _ENV                  # noqa: E402
-
-_ENV.isolate('v22')
-
-ok, bad = [], []
-
-
-def ck(name, cond, extra=''):
-    (ok if cond else bad).append(name)
-    print(('PASS ' if cond else 'FAIL ') + name + ('  ' + str(extra) if extra else ''))
-
-
-TD = tempfile.mkdtemp(prefix='v22-')
-os.environ['HOME'] = os.path.join(TD, 'home')
-os.environ['DC_BACKUP_ROOT'] = os.path.join(TD, 'bk')
-os.makedirs(os.environ['HOME'])
-os.makedirs(os.environ['DC_BACKUP_ROOT'])
-
-from brl import appdata as AD               # noqa: E402
-
-DB = os.path.join(os.environ['XDG_DATA_HOME'], 'desktop-calendar', 'calendar.db')
-INI = os.path.join(os.environ['XDG_CONFIG_HOME'], 'desktop-calendar', 'calendar.ini')
-os.makedirs(os.path.dirname(DB))
-os.makedirs(os.path.dirname(INI))
-
-
-def seed(path, n, start=0):
-    cn = sqlite3.connect(path)
-    cn.executescript(AD._SCHEMA_DDL)
-    for i in range(n):
-        cn.execute('INSERT INTO todo(content,category,date,created) VALUES(?,?,?,?)',
-                   (u'待办%d' % (start + i), u'生活', '2026-10-%02d' % (1 + i),
-                    '2026-10-01 09:00:00'))
-    cn.commit()
-    cn.close()
-
-
-def keep_ini(text):
-    with open(INI, 'w') as f:
-        f.write(text)
-
-
-# ---------------------------------------------------------------- ① 启动自愈顺序
-_main = open(os.path.join(HERE, 'brl', '__main__.py'), encoding='utf-8').read()
-ck('①1 启动时先做数据自愈', 'AD.ensure_data()' in _main)
-# rindex：前面若干维护命令里也 import 了 appctx，这里要的是最后那段真正的启动
-ck('①2 自愈早于 store/appctx 的导入',
-   _main.index('AD.ensure_data()') < _main.rindex('from . import appctx'))
-ck('①3 自愈留下 restore.log 便于排查', 'restore.log' in _main)
-ck('①3b 启动时顺手拍近日快照', 'AD.auto_snapshot()' in _main)
-
-_ad = open(os.path.join(HERE, 'brl', 'appdata.py'), encoding='utf-8').read()
-ck('①4 新增 db_count（判断空库不看文件大小）', 'def db_count(' in _ad)
-ck('①5 新增 best_backup（挑最富的备份）', 'def best_backup(' in _ad)
-ck('①6 新增 merge_rows（只增不减合并）', 'def merge_rows(' in _ad)
-ck('①7 备份改用 SQLite 备份接口', 'cn.backup(out)' in _ad)
-
-# ---------------------------------------------------------------- ② 备份挑选
-seed(DB, 3)
-keep_ini('[ui]\ntheme=5\n')
-d, kinds = AD.make_backup()
-ck('②1 备份含库与设置', sorted(kinds) == ['db', 'ini'], kinds)
-# 再做一份"更新的空库"备份：按时间挑就会挑到它
-time.sleep(0.05)
-empty_dir, _k = AD.make_backup('upgrade-29991231-235959')
-os.remove(DB)
-seed(DB, 0)
-empty_dir, _k = AD.make_backup('upgrade-29991231-235959')
-ck('②2 空库备份确实 0 条', AD.db_count(os.path.join(empty_dir, 'calendar.db')) == 0)
-ck('②3 挑备份优先挑有数据的',
-   AD.db_count(os.path.join(AD.best_backup(), 'calendar.db')) == 3,
-   AD.best_backup())
-
-# ---------------------------------------------------------------- ③ 合并恢复
-AD.prune_backups(keep=9)
-os.remove(DB)
-seed(DB, 0)                                  # 模拟"Store 抢先建了个空库"
-ck('③1 空库 0 条', AD.db_count(DB) == 0)
-got = AD.ensure_data()
-ck('③2 空库被救回 3 条', AD.db_count(DB) == 3, AD.db_count(DB))
-ck('③3 救回来会报 db', 'db' in got, got)
-AD.ensure_data()
-ck('③4 反复自愈不产生重复', AD.db_count(DB) == 3, AD.db_count(DB))
-
-# 库还在、也有数据：普通启动绝不去动它
-os.remove(DB)
-seed(DB, 5, start=100)
-AD.ensure_data()
-ck('③5 有数据的库不会被备份塞回旧数据', AD.db_count(DB) == 5, AD.db_count(DB))
-
-# 升级收尾 merge=True：缺的补上、多的不删
-got = AD.ensure_data(merge=True)
-ck('③6 升级收尾合并补进备份独有的 3 条', AD.db_count(DB) == 8, AD.db_count(DB))
-AD.ensure_data(merge=True)
-ck('③7 合并幂等，不会越合越多', AD.db_count(DB) == 8, AD.db_count(DB))
-ck('③8 合并保留当前库原有内容',
-   AD.db_count(DB) == 8 and 'db' in got, (got, AD.db_count(DB)))
-
-# 库与设置都被删：两样都回来
-os.remove(DB)
-os.remove(INI)
-got = AD.ensure_data()
-ck('③9 库和设置同时丢失都能补回',
-   AD.db_count(DB) == 3 and os.path.isfile(INI) and 'theme=5' in open(INI).read(),
-   got)
-
-# 设置文件还在就绝不动它（用户改过的配置优先）
-keep_ini('KEEPME')
-ck('③10 已有的设置不被备份覆盖',
-   'ini' not in AD.ensure_data() and open(INI).read() == 'KEEPME')
-
-# 用户自己把待办删光后再升级/重启：绝不能把删掉的又变出来
-os.remove(DB)
-seed(DB, 3)
-cn = sqlite3.connect(DB)
-cn.execute('DELETE FROM todo')
-cn.commit()
-cn.close()
-ck('③11 删光后库为空但编号还在', AD.db_count(DB) == 0 and AD.db_max_id(DB) == 3,
-   (AD.db_count(DB), AD.db_max_id(DB)))
-AD.ensure_data(merge=True)
-ck('③12 用户删光的不会被"救"回来', AD.db_count(DB) == 0, AD.db_count(DB))
-AD.ensure_data()
-ck('③13 普通启动同样不复活', AD.db_count(DB) == 0, AD.db_count(DB))
-# 反过来：库被换成"编号从未分配"的新空库，必须救
-os.remove(DB)
-cn = sqlite3.connect(DB)
-cn.executescript(AD._SCHEMA_DDL)
-cn.commit()
-cn.close()
-ck('③14 新建空库编号是 0', AD.db_max_id(DB) == 0)
-AD.ensure_data()
-ck('③15 新建空库能救回备份里的待办', AD.db_count(DB) == 3, AD.db_count(DB))
-
-# ---------------------------------------------------------------- ④ 清理策略
-for i in range(7):
-    p = os.path.join(os.environ['DC_BACKUP_ROOT'], 'upgrade-2999010%d-000000' % i)
-    os.makedirs(p)
-    seed(os.path.join(p, 'calendar.db'), 0)
-AD.prune_backups(keep=5)
-ck('④1 只留 5 份', len(os.listdir(os.environ['DC_BACKUP_ROOT'])) <= 5,
-   os.listdir(os.environ['DC_BACKUP_ROOT']))
-ck('④2 待办最多的那份不会被清掉',
-   AD.db_count(os.path.join(AD.best_backup(), 'calendar.db')) == 3)
-
-ck('④3 平时也会留近日快照', 'def auto_snapshot(' in _ad)
-_before = set(os.listdir(os.environ['DC_BACKUP_ROOT']))
-_snap = AD.auto_snapshot()
-_after = set(os.listdir(os.environ['DC_BACKUP_ROOT']))
-ck('④4 库里没东西时不拍快照（免得空库挤掉好备份）',
-   AD.db_count(DB) > 0 and bool(_snap) == (_after != _before),
-   (_snap, len(_after - _before)))
-ck('④5 快照目录名带 auto- 前缀',
-   (not _snap) or os.path.basename(_snap).startswith('auto-'), _snap)
-
-# ---------------------------------------------------------------- ⑤ 安装脚本
-import makedeb as MD                        # noqa: E402
-
-ck('⑤1 升级收尾改调 --restore-best', '--restore-best' in MD.UPGRADER)
-ck('⑤2 调用带超时，避免万一开界面卡住安装',
-   'timeout 25' in MD.UPGRADER)
-ck('⑤3 拿不到 backup= 才回落到文件拷贝',
-   'fallback to file copy' in MD.UPGRADER)
-ck('⑤4 备份时连 -wal 一起带上',
-   '-wal' in MD.UPGRADER and 'DB-wal' in MD.UPGRADER)
-
-_qt = open(os.path.join(HERE, 'brl', '__main__.py'), encoding='utf-8').read()
-ck('⑤5 --restore-best 已登记为免 Qt 命令',
-   "'--restore-best': 'restore'" in _qt)
-msg, code = AD.cli('restore')
-ck('⑤6 CLI 输出 backup= 供脚本判断', 'backup=' in msg and code == 0, msg)
-
-# ---------------------------------------------------------------- ⑥ 字体色透明度
-from PyQt5.QtWidgets import QApplication   # noqa: E402
-
-app = QApplication.instance() or QApplication(sys.argv)
-from brl import store as S                 # noqa: E402
-from brl import settings as ST             # noqa: E402
-
-_d = dict((k, (lb, al)) for k, lb, al in ST.COLOR_DEFS)
-for _k in ('txtclr', 'weekclr', 'jiericlr'):
-    ck('⑥1 %s 带透明度' % _k, _d[_k][1] is True)
-
-dlg = ST.SettingsDialog(S.STORE, None)
-cur = {}
-for _k in ('txtclr', 'weekclr', 'jiericlr'):
-    cp = dlg._color_picks.get(_k)
-    cur[_k] = bool(cp is not None and getattr(cp, '_sl', None) is not None)
-ck('⑥2 三种字体色都有透明度滑杆', all(cur.values()), cur)
-
-cp = dlg._color_picks['txtclr']
-emitted = []
-cp.changed.connect(lambda k, v: emitted.append((k, v)))
-cp._sl.setValue(128)
-_app_ok = bool(emitted) and emitted[-1][0] == 'txtclr'
-ck('⑥3 拖滑杆写回 8 位 #AARRGGBB',
-   _app_ok and len(emitted[-1][1]) == 9 and emitted[-1][1][1:3] == '80',
-   emitted[-1:])
-ck('⑥4 颜色值可被主界面接受（6/8 位都合法）',
-   '#80FF0000'[1:] and len('#80FF0000'[1:]) == 8)
-
-src_st = open(os.path.join(HERE, 'brl', 'settings.py'), encoding='utf-8').read()
-ck('⑥5 设置页按 alpha 分支建控件', 'if alpha:' in src_st and 'ColorPick(' in src_st)
-ck('⑥6 色块先铺白底再叠色（半透明色也看得清）',
-   "p.setBrush(QColor('#FFFFFF'))" in src_st)
-
-if bad:
-    print(u'未通过：%s' % u'、'.join(bad))
-sys.exit(1 if bad else 0)
 # ===== [END SECTION] =====

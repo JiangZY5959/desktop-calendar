@@ -6,7 +6,7 @@
   悬停 tips 提示 / 显示班休 / 内外边框颜色与透明度
 - 设置第一周起点（第几周规则）
 - 日历字体大小 / 清单字体大小
-- 日历字体 / 星期标题栏字体 / 节日字体 颜色（也含透明度滑杆）
+- 日历字体颜色 / 星期标题栏字体颜色 / 节日字体颜色（无透明度）
 - 今日背景 / 窗口背景 / 格子背景 / 星期标题栏背景 颜色（含透明度滑杆）
 - 默认设置（恢复当前主题默认）
 """
@@ -84,11 +84,10 @@ class AlphaSlider(QSlider):
         p.end()
 
 # 颜色覆盖的设置键：key -> (显示名, 是否带透明度)
-# 字体颜色也带透明度：压在日历底色上时能做出"淡化"的效果，值是 #AARRGGBB
 COLOR_DEFS = [
-    ('txtclr',     u'日历字体颜色', True),
-    ('weekclr',    u'星期标题栏字体颜色', True),
-    ('jiericlr',   u'节日字体颜色', True),
+    ('txtclr',     u'日历字体颜色', False),
+    ('weekclr',    u'星期标题栏字体颜色', False),
+    ('jiericlr',   u'节日字体颜色', False),
     ('todayclr',   u'今日背景颜色', True),
     ('mainbg',     u'窗口背景颜色', True),
     ('gridbg',     u'格子背景颜色', True),
@@ -143,15 +142,8 @@ class ColorPick(QWidget):
         pm.fill(Qt.transparent)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
-        # 先铺白底再叠颜色：字体色也可能带透明度，直接画在半透明画布上
-        # 会淡得看不出是什么颜色
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor('#FFFFFF'))
-        p.drawRoundedRect(0, 0, 47, 19, 3, 3)
-        p.setBrush(self._c)
-        p.drawRoundedRect(0, 0, 47, 19, 3, 3)
         p.setPen(QColor(230, 231, 232))
-        p.setBrush(Qt.NoBrush)
+        p.setBrush(self._c)
         p.drawRoundedRect(0, 0, 47, 19, 3, 3)
         p.end()
         return QIcon(pm)
