@@ -122,12 +122,12 @@ class ColorPick(QWidget):
             self._sl = AlphaSlider()
             self._sl.setRange(0, 255)
             self._sl.setValue(self._c.alpha())
-            self._sl.setFixedWidth(70)
+            self._sl.setFixedWidth(56)
             self._sl.setFixedHeight(22)
             self._sl.valueChanged.connect(self._on_alpha)
             lay.addWidget(self._sl)
             self._lb = QLabel('%d%%' % round(self._c.alpha() * 100 / 255.0))
-            self._lb.setFixedWidth(34)
+            self._lb.setFixedWidth(30)
             lay.addWidget(self._lb)
         self._repaint_btn()
 
@@ -290,7 +290,7 @@ class SettingsDialog(QDialog):
         self._store = store
         self.setWindowTitle(APP_NAME + u' - 选项设置')
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        self.setFixedSize(800, 620)
+        self.setFixedSize(830, 620)
         self.setStyleSheet(
             'QDialog{background:#F2F6FC;border-radius:10px;}'
             'QLabel{color:#202020;font-size:13px;}'
@@ -417,53 +417,38 @@ class SettingsDialog(QDialog):
         row.addStretch(1)
         lay.addLayout(row)
 
-        # 字体颜色（无透明度）：日历 / 周末 / 节日
-        rowc = QHBoxLayout()
-        for key, label, alpha in COLOR_DEFS[:3]:
-            rowc.addWidget(QLabel(label + ':'))
-            b = ColorButton(key, self._stored(key), self._fallback(key))
-            b.changed.connect(self.on_color)
-            self._color_picks[key] = b
-            rowc.addWidget(b)
-            rowc.addSpacing(10)
-        rowc.addStretch(1)
-        lay.addLayout(rowc)
-
-        # 背景颜色（带透明度）：今日 / 窗口
-        rowb1 = QHBoxLayout()
-        for key, label, alpha in COLOR_DEFS[3:5]:
-            rowb1.addWidget(QLabel(label + ':'))
-            cp = ColorPick(key, self._stored(key), alpha, self._fallback(key))
-            cp.changed.connect(self.on_color)
-            self._color_picks[key] = cp
-            rowb1.addWidget(cp)
-            rowb1.addSpacing(10)
-        rowb1.addStretch(1)
-        lay.addLayout(rowb1)
-
-        # 背景颜色（带透明度）：格子 / 星期标题栏
-        rowb2 = QHBoxLayout()
-        for key, label, alpha in COLOR_DEFS[5:7]:
-            rowb2.addWidget(QLabel(label + ':'))
-            cp = ColorPick(key, self._stored(key), alpha, self._fallback(key))
-            cp.changed.connect(self.on_color)
-            self._color_picks[key] = cp
-            rowb2.addWidget(cp)
-            rowb2.addSpacing(10)
-        rowb2.addStretch(1)
-        lay.addLayout(rowb2)
-
-        # 边框颜色（带透明度）：外边框 / 内边框
-        rowb3 = QHBoxLayout()
-        for key, label, alpha in COLOR_DEFS[7:9]:
-            rowb3.addWidget(QLabel(label + ':'))
-            cp = ColorPick(key, self._stored(key), alpha, self._fallback(key))
-            cp.changed.connect(self.on_color)
-            self._color_picks[key] = cp
-            rowb3.addWidget(cp)
-            rowb3.addSpacing(10)
-        rowb3.addStretch(1)
-        lay.addLayout(rowb3)
+        # 颜色设置：两列网格对齐（标签定宽、色块定宽），同一对象的颜色
+        # 左右挨着——星期标题栏的字体/背景一行，外边框/内边框一行
+        _meta = dict((k, (lb, al)) for k, lb, al in COLOR_DEFS)
+        _PAIRS = [
+            ('txtclr', 'jiericlr'),        # 日历字体 | 节日字体
+            ('weekclr', 'weekgridbg'),     # 星期标题栏字体 | 星期标题栏背景
+            ('todayclr', 'mainbg'),        # 今日背景 | 窗口背景
+            ('borderout', 'borderin'),     # 外边框 | 内边框
+            ('gridbg', None),              # 格子背景
+        ]
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(9)
+        for r, pair in enumerate(_PAIRS):
+            for c, key in enumerate(pair):
+                if key is None:
+                    continue
+                label, alpha = _meta[key]
+                lb = QLabel(label + ':')
+                lb.setFixedWidth(132)
+                grid.addWidget(lb, r, c * 2)
+                if alpha:
+                    cp = ColorPick(key, self._stored(key), alpha,
+                                   self._fallback(key))
+                else:
+                    cp = ColorButton(key, self._stored(key),
+                                     self._fallback(key))
+                cp.changed.connect(self.on_color)
+                self._color_picks[key] = cp
+                grid.addWidget(cp, r, c * 2 + 1)
+        grid.setColumnStretch(4, 1)
+        lay.addLayout(grid)
 
         # 默认设置
         rowd = QHBoxLayout()

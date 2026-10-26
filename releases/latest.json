@@ -1,10 +1,10 @@
 {
-  "version": "1.4.5.1",
-  "tag": "v1.4.5.1",
-  "file": "desktop-calendar_1.4.5.1_arm64.deb",
-  "size": 95520,
-  "sha256": "d856ec8425c44d0a65760a01f7e8b2244711ebfab3839c595bc46ca1350dc583",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/4434a040cc448553b6407a43af235c18c6ded4ea/releases/desktop-calendar_1.4.5.1_arm64.deb",
+  "version": "1.4.5.2",
+  "tag": "v1.4.5.2",
+  "file": "desktop-calendar_1.4.5.2_arm64.deb",
+  "size": 95660,
+  "sha256": "c9aeca709bde0563624b0bde69254aa0af67d5ce3c1ee6939f6718da341d51a7",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/ca00b5ed19b9b7788cd2016b115e920ff81f0d77/releases/desktop-calendar_1.4.5.2_arm64.deb",
   "released": "2026-10-26",
-  "notes": "· 不再触发 UOS「自启动管控」弹窗"
+  "notes": "· 基础设置颜色区重新排布\n· 设置窗口略微加宽（800→830），容纳两列排布不再裁切"
 }
