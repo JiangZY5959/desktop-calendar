@@ -7,7 +7,7 @@ from PyQt5.QtGui import QColor, QPainter, QFont, QPen, QKeySequence, QCursor
 from PyQt5.QtWidgets import (QWidget, QLabel, QLineEdit, QComboBox, QCheckBox,
                              QPushButton, QHBoxLayout, QVBoxLayout, QGridLayout,
                              QDateEdit, QTimeEdit, QDialog, QListWidget,
-                             QListWidgetItem, QMessageBox, QFrame, QSizePolicy,
+                             QListWidgetItem, QFrame, QSizePolicy,
                              QShortcut, QMenu, QAbstractItemView, QApplication)
 
 from . import data as D
@@ -15,6 +15,7 @@ from . import theme as T
 from . import lunar as L
 from .timepick import TimePick, TimePopup, TimeWheel, ACCENT
 from . import APP_NAME
+from . import updatedlg as DLG
 
 CATEGORIES = [u'生活', u'工作', u'家庭', u'亲友', u'自己']
 REPEATS = [u'不重复', u'每年重复', u'每月重复', u'每周重复']
@@ -195,7 +196,7 @@ class TodoEditDialog(QDialog):
 
     def _ok(self):
         if not self.ed_content.text().strip():
-            QMessageBox.information(self, APP_NAME, u'请输入待办内容')
+            DLG.info(self, APP_NAME, u'请输入待办内容')
             return
         d = self.dt.date()
         remind = int(self.cb_remind.currentData() or 0)
@@ -361,7 +362,7 @@ class TodoListDialog(QDialog):
     def _edit_selected(self):
         items = self.list.selectedItems()
         if len(items) != 1:
-            QMessageBox.information(self, u'编辑待办', u'请先选中一条待办。')
+            DLG.info(self, u'编辑待办', u'请先选中一条待办。')
             return
         self._edit(items[0])
 
@@ -388,7 +389,7 @@ class TodoListDialog(QDialog):
         items = self.list.selectedItems()
         if not items:
             # 没有选中项时给出提示，而不是静默无反应
-            QMessageBox.information(self, u'删除待办', u'请先选中要删除的待办。')
+            DLG.info(self, u'删除待办', u'请先选中要删除的待办。')
             return
         self._delete_items(items)
 
@@ -409,9 +410,9 @@ class TodoListDialog(QDialog):
             head = u'\n'.join(u'· %s' % n for n in names[:8])
             more = u'\n…等 %d 条' % len(names) if len(names) > 8 else u''
             msg = u'确定删除这 %d 条待办吗？\n\n%s%s' % (len(ids), head, more)
-        r = QMessageBox.question(self, u'删除待办', msg,
-                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if r != QMessageBox.Yes:
+        # 按钮写中文的「删除 / 取消」：系统 QMessageBox 在 UOS 上给的是
+        # 英文 Yes / No，还带原生标题栏装饰，跟软件自己的卡片风格不搭。
+        if not DLG.confirm(self, u'删除待办', msg, ok=u'删除'):
             return
         for tid in ids:
             self._store.remove(tid)

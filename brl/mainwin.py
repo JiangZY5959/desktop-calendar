@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""主窗口（桌面悬浮日历）。"""
+"""主窗口（松松桌面日历）。"""
 import os
 import datetime
 
@@ -8,7 +8,7 @@ from PyQt5.QtGui import (QPainter, QColor, QPixmap, QCursor, QPen, QIcon,
                          QFont, QDesktopServices)
 from PyQt5.QtWidgets import (QWidget, QLabel, QPushButton, QHBoxLayout, QVBoxLayout,
                              QSystemTrayIcon, QApplication, QDialog,
-                             QMessageBox, QSizeGrip, QFrame, QLayout)
+                             QSizeGrip, QFrame, QLayout)
 
 from . import data as D
 from . import theme as T
@@ -18,6 +18,7 @@ from .caltable import CalTable
 from .todo import (TodoEditDialog, TodoListDialog, REMIND_LEAD, remind_lead)
 from .settings import SettingsDialog
 from .updatedlg import UpdateFlow
+from . import updatedlg as DLG
 from . import x11fix as X11
 
 from . import APP_NAME, __version__ as APP_VER
@@ -780,7 +781,7 @@ class MainWindow(QWidget):
                     pop.activateWindow()
                 except Exception:
                     # 退兜：自绘弹窗万一失败，用标准对话框顶上，绝不静默吞掉提醒
-                    QMessageBox.information(
+                    DLG.info(
                         None, u'待办提醒',
                         u'%s %s\n%s' % (row.get('date', ''), row.get('remind_time', ''),
                                         row.get('content', '')))

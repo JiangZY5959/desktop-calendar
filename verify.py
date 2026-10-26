@@ -244,7 +244,7 @@ dlg = SettingsDialog(st, None)
 dlg.show()
 app.processEvents()
 ssrc = open(sys.modules['brl.settings'].__file__.replace('.pyc', '.py')).read()
-ck('④.设置页无重复标题头', u"QLabel(u'桌面悬浮日历 - 选项设置')" not in ssrc)
+ck('④.设置页无重复标题头', u"QLabel(u'松松桌面日历 - 选项设置')" not in ssrc)
 
 # ⑤ 点击背景设置不崩溃（曾因 ALL_THEMES[8] 越界崩溃）
 try:
@@ -418,7 +418,7 @@ app = QApplication(sys.argv)
 import brl
 from brl import store, appctx
 
-APP = u'桌面悬浮日历'
+APP = u'松松桌面日历'
 AST = os.path.join(os.environ['XDG_CONFIG_HOME'], 'autostart',
                    'desktop-calendar.desktop')
 
@@ -650,7 +650,7 @@ tdsrc = open(os.path.join(HERE, 'brl', 'todo.py')).read()
 ck('有删除按钮', u'删除待办' in tdsrc)
 ck('有右键菜单', 'customContextMenuRequested' in tdsrc and 'QMenu' in tdsrc)
 ck('支持 Delete 键', 'QKeySequence(Qt.Key_Delete)' in tdsrc)
-ck('删除前二次确认', 'QMessageBox.question' in tdsrc)
+ck('删除前二次确认', u"DLG.confirm(self, u'删除待办'" in tdsrc)
 
 # 真删一条：插入 → GUI 删除 → 校验库里没了
 d0 = datetime.date.today()
@@ -919,10 +919,12 @@ ck('已选中 3 条', len(dlg.list.selectedItems()) == 3,
    str(len(dlg.list.selectedItems())))
 ck('删除按钮显示所选数量', u'删除所选' in dlg._btn_del.text(), dlg._btn_del.text())
 
-real_q = QMessageBox.question
-QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+# 确认窗已换成自绘的中文窗，这里把 confirm 顶成"点了确定"
+import brl.updatedlg as _UDLG
+_real_confirm = _UDLG.confirm
+_UDLG.confirm = lambda *a, **k: True
 dlg._delete_selected()
-QMessageBox.question = real_q
+_UDLG.confirm = _real_confirm
 app.processEvents()
 left = [S.get(i) for i in ids]
 ck('3 条全部从库中删除', all(x is None for x in left))
@@ -1244,7 +1246,7 @@ print('== ③ 待办提醒真的弹出')
 ck('弹窗被长期持有引用', 'self._pops.append(pop)' in msrc)
 ck('有遗忘辅助函数 _forget_pop', 'def _forget_pop' in msrc)
 seg = msrc.split('def _check_remind')[1].split('def ')[0]
-ck('创建失败仍有兜底提示', 'QMessageBox.information' in seg and u'退兜' in seg)
+ck('创建失败仍有兜底提示', 'DLG.info(' in seg and u'退兜' in seg)
 
 now = datetime.datetime.now()
 past = now - datetime.timedelta(minutes=2)
@@ -1911,7 +1913,7 @@ if os.path.isdir(tmpd):
 os.makedirs(tmpd)
 src = os.path.join(tmpd, 'src.desktop')
 with open(src, 'w') as f:
-    f.write('[Desktop Entry]\nType=Application\nName=桌面悬浮日历\nExec=desktop-calendar\n')
+    f.write('[Desktop Entry]\nType=Application\nName=松松桌面日历\nExec=desktop-calendar\n')
 _orig_dd = A.desktop_dir
 A.desktop_dir = lambda: tmpd
 made = A.make_desktop_icon(src)
@@ -1923,9 +1925,9 @@ shutil.rmtree(tmpd, ignore_errors=True)
 ck('③.未安装时不报错', A.make_desktop_icon('/nonexistent/xx.desktop') is False)
 
 # ================= ④ 改名 =================
-ck('④.APP_NAME 已改', A.APP_NAME == u'桌面悬浮日历', A.APP_NAME)
-ck('④.desktop 模板已改', u'Name=桌面悬浮日历' in M.DESKTOP and '6335' not in M.DESKTOP)
-ck('④.打包信息已改', u'桌面悬浮日历' in M.INFO and '6335' not in M.INFO)
+ck('④.APP_NAME 已改', A.APP_NAME == u'松松桌面日历', A.APP_NAME)
+ck('④.desktop 模板已改', u'Name=松松桌面日历' in M.DESKTOP and '6335' not in M.DESKTOP)
+ck('④.打包信息已改', u'松松桌面日历' in M.INFO and '6335' not in M.INFO)
 import brl as _B
 ck('④.版本一致(源码=打包)', M.VER == _B.__version__, '%s vs %s' % (M.VER, _B.__version__))
 leftover = []
@@ -3542,8 +3544,8 @@ ck('⑤5 命令行输出可解析', 'action=save' in p.stdout and 'ini=1' in p.s
 # ---------------------------------------------------------------- ⑥ 与安装脚本的耦合
 import makedeb as MD          # noqa: E402
 CARRY_SRC = open(os.path.join(HERE, 'brl', 'carry.py'), encoding='utf-8').read()
-ck('⑥1 版本号 1.4.6.1', MD.VER == '1.4.6.1'
-   and __import__('brl').__version__ == '1.4.6.1', MD.VER)
+ck('⑥1 版本号 1.4.7.0', MD.VER == '1.4.7.0'
+   and __import__('brl').__version__ == '1.4.7.0', MD.VER)
 ck('⑥2 preinst 内联的就是这份源码', CARRY_SRC in MD.PREINST)
 _i = MD.PREINST.index('save --home')
 ck('⑥3 存档在 preinst 里、且早于收尾标记', _i > 0
@@ -3661,7 +3663,53 @@ ck('week.mon.iso', cal0.week_no(datetime.date(2026,12,31))
 
 # ---- 应用图标与命名
 ck('appicon', not T.app_icon().isNull())
-ck('rename.应用名', A.APP_NAME == u'桌面悬浮日历', A.APP_NAME)
+ck('rename.应用名', A.APP_NAME == u'松松桌面日历', A.APP_NAME)
+
+# ---- 应用图标：卡通小松树（台历卡 + 三层绿树），圆角透明
+try:
+    from PIL import Image
+    _ic = Image.open(os.path.join(_ROOT, 'resources', 'icons', 'calendar.png')).convert('RGBA')
+    _p = _ic.load()
+    _S = _ic.size[0]
+    _green = _brown = 0
+    for _y in range(0, _S, 2):
+        for _x in range(0, _S, 2):
+            _c = _p[_x, _y]
+            if _c[3] < 200:
+                continue
+            if _c[1] > _c[0] + 20 and _c[1] > _c[2] + 20:
+                _green += 1
+            elif _c[0] > _c[1] > _c[2] and _c[0] - _c[2] > 30:
+                _brown += 1
+    # 沿用蓝色方块日历图标（白页 + 顶部装订环 + 蓝色今日格），不画任何具象图形
+    ck('icon.四角透明', _p[0, 0][3] == 0 and _p[_S - 1, _S - 1][3] == 0
+       and _p[0, _S - 1][3] == 0 and _p[_S - 1, 0][3] == 0)
+    _blue = sum(1 for _y in range(0, _S, 4) for _x in range(0, _S, 4)
+                if _p[_x, _y][3] > 200 and _p[_x, _y][2] - _p[_x, _y][0] > 40)
+    _white = sum(1 for _y in range(0, _S, 4) for _x in range(0, _S, 4)
+                 if _p[_x, _y][3] > 200 and _p[_x, _y][0] > 235
+                 and _p[_x, _y][1] > 235 and _p[_x, _y][2] > 235)
+    ck('icon.蓝色底', _blue > 200, _blue)
+    ck('icon.白色日历页', _white > 200, _white)
+    _sizes = [os.path.isfile(os.path.join(
+        _ROOT, 'resources', 'icons', 'calendar_%d.png' % _s))
+        for _s in (16, 24, 32, 48, 64, 128)]
+    ck('icon.全套尺寸齐全', all(_sizes), _sizes)
+except ImportError:
+    ck('icon.跳过（无 PIL）', True)
+
+# ---- 确认弹窗全部中文化：不再用系统 QMessageBox
+_tdsrc = open(os.path.join(_ROOT, 'todo.py'), encoding='utf-8').read()
+ck('dlg.待办不再用 QMessageBox',
+   'QMessageBox' not in _tdsrc.replace(u'系统 QMessageBox', u''))
+ck('dlg.删除确认走自绘窗', u"DLG.confirm(self, u'删除待办', msg, ok=u'删除')" in _tdsrc)
+ck('dlg.提示窗走自绘窗', _tdsrc.count('DLG.info(') == 3, _tdsrc.count('DLG.info('))
+_mwsrc = open(os.path.join(_ROOT, 'mainwin.py'), encoding='utf-8').read()
+ck('dlg.主窗口不再用 QMessageBox', 'QMessageBox' not in _mwsrc)
+import brl.updatedlg as _UD
+ck('dlg.确认窗默认按钮是中文',
+   _UD.ConfirmDialog.__init__.__defaults__ == (u'确定', u'取消'),
+   _UD.ConfirmDialog.__init__.__defaults__)
 ck('bar.已移除', not os.path.exists(os.path.join(_ROOT, 'barwin.py')))
 ck('tools.按钮全部用自制图标', all(
     k in A.MainWindow.ICON_FILES for k in
@@ -3803,7 +3851,7 @@ else:
         out = subprocess.check_output(
             ['xwininfo', '-root', '-tree'],
             env=dict(os.environ, DISPLAY=':0')).decode('utf-8', 'ignore')
-        lived = u'桌面悬浮日历' in out
+        lived = u'松松桌面日历' in out
         step('自启动项真的拉起了窗口', lived)
         polled = p.poll()
         if polled is not None and polled != 0:

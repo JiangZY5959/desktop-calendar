@@ -167,6 +167,63 @@ class MsgDialog(_Panel):
         lay.addLayout(row)
 
 
+class ConfirmDialog(_Panel):
+    """问一句的确认窗，顶替系统 QMessageBox.question。
+
+    系统那个窗在 UOS 上按钮是英文的「Yes / No」，还带原生标题栏装饰，
+    跟软件自己的浅色卡片不是一个风格。这里两个按钮的文字都能自己定，
+    删除待办时传「删除 / 取消」，别的地方传「确定 / 取消」。
+    """
+
+    def __init__(self, parent, title, text, ok=u'确定', cancel=u'取消'):
+        _Panel.__init__(self, None, parent, 380, 0, title)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 14, 18, 16)
+        lay.setSpacing(10)
+
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        ic = QLabel()
+        ic.setFixedSize(20, 20)
+        pm = T.pix(D.res('icons', 'calendar.png'))
+        ic.setPixmap(pm.scaled(20, 20, Qt.KeepAspectRatio,
+                               Qt.SmoothTransformation))
+        head.addWidget(ic, 0, Qt.AlignVCenter)
+        head.addWidget(self._label(title, 15, bold=True), 0, Qt.AlignVCenter)
+        head.addStretch(1)
+        head.addWidget(self._close_btn(), 0, Qt.AlignVCenter)
+        lay.addLayout(head)
+
+        body = QLabel(text)
+        body.setWordWrap(True)
+        body.setStyleSheet('color:%s;font-size:13px;background:transparent;'
+                           % self._txt)
+        lay.addWidget(body)
+        lay.addStretch(1)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addStretch(1)
+        b2 = self._btn(cancel, w=84, h=30)
+        b2.clicked.connect(self.reject)
+        row.addWidget(b2)
+        b1 = self._btn(ok, primary=True, w=84, h=30)
+        b1.clicked.connect(self.accept)
+        b1.setDefault(True)
+        row.addWidget(b1)
+        lay.addLayout(row)
+
+
+def info(parent, title, text):
+    """弹一个只有一个「好的」的提示窗（顶替系统弹窗的信息提示）。"""
+    MsgDialog(parent, title, text).exec_()
+
+
+def confirm(parent, title, text, ok=u'确定', cancel=u'取消'):
+    """弹确认窗，点「确定」返回 True，点「取消」或关闭返回 False。"""
+    return ConfirmDialog(parent, title, text, ok, cancel).exec_() == QDialog.Accepted
+
+
 class BusyDialog(_Panel):
     """「正在检查更新…」/「正在安装更新…」的轻量等待窗。"""
 
