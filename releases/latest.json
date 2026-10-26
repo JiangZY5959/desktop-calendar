@@ -1,10 +1,10 @@
 {
-  "version": "1.4.5.0",
-  "tag": "v1.4.5.0",
-  "file": "desktop-calendar_1.4.5.0_arm64.deb",
-  "size": 95376,
-  "sha256": "38f237762c0610f277e6e7a06cbfa0651e5bcac34f5270758cdeb12f32db4bb1",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/6acd6e0f82281677852cfa04798639d2737866a2/releases/desktop-calendar_1.4.5.0_arm64.deb",
+  "version": "1.4.5.1",
+  "tag": "v1.4.5.1",
+  "file": "desktop-calendar_1.4.5.1_arm64.deb",
+  "size": 95520,
+  "sha256": "d856ec8425c44d0a65760a01f7e8b2244711ebfab3839c595bc46ca1350dc583",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/4434a040cc448553b6407a43af235c18c6ded4ea/releases/desktop-calendar_1.4.5.1_arm64.deb",
   "released": "2026-10-26",
-  "notes": "· 开机自启只在安装时问一次\n· 启动即锁定\n· 颜色名修正"
+  "notes": "· 不再触发 UOS「自启动管控」弹窗"
 }

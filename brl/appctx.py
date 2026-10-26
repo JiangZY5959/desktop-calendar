@@ -177,6 +177,15 @@ def apply_autostart(store, want=None):
                u'NoDisplay=false\n'
                u'X-GNOME-Autostart-enabled=true\n'
                u'X-Deepin-Vendor=user\n' % (APP_NAME, autostart_exe()))
+        # 内容没变就不要重写：UOS 的「自启动管控」盯着 ~/.config/autostart，
+        # 每次开机启动都原样重写一遍，系统就会弹一次
+        # 「xxx.desktop 正在设置开机自启动」。只在内容真的变化时才落盘。
+        try:
+            with open(path, 'r') as f:
+                if f.read() == txt:
+                    return True
+        except (IOError, OSError):
+            pass
         with open(path, 'w') as f:
             f.write(txt)
         os.chmod(path, 0o755)

@@ -3119,16 +3119,27 @@ _apply = _ctx[_i_apply:_ctx.index('def migrate_ini_group(')
 ck('①19 没记过时不删已有自启项',
    'autostart_path()' in _apply and 'v is None' in _apply)
 
+# UOS「自启动管控」盯的是写入事件：内容不变时绝不能重写自启文件，
+# 否则用户每次开机都会被系统弹一次「正在设置开机自启动」
+_asp = AX.autostart_path()
+os.makedirs(os.path.dirname(_asp), exist_ok=True)
+with open(_asp, 'w') as f:
+    f.write('[Desktop Entry]\nstale=1\n')
+ck('①20 内容不同会重写', AX.apply_autostart(None, want=True))
+_m1 = os.stat(_asp).st_mtime_ns
+ck('①21 内容不变时不重写', AX.apply_autostart(None, want=True)
+   and os.stat(_asp).st_mtime_ns == _m1)
+
 # 启动即锁定：安装/更新/重启/重开后默认锁住，首次显示后落实一次
-ck('①20 初始状态为锁定', '_locked = True' in _mw)
+ck('①22 初始状态为锁定', '_locked = True' in _mw)
 _i_show = _mw.index('def showEvent(')
-ck('①21 首次显示后落地锁定',
+ck('①23 首次显示后落地锁定',
    '_lock_shown' in _mw and '_apply_lock_flags' in _mw[_i_show:_i_show + 400])
 # 设置页颜色标签：星期标题栏背景颜色（不再叫周末背景颜色）
 _setsrc = open(os.path.join(HERE, 'brl', 'settings.py'),
                encoding='utf-8').read()
-ck('①22 颜色名为星期标题栏背景颜色', u'星期标题栏背景颜色' in _setsrc)
-ck('①23 不再叫周末背景颜色', u'周末背景颜色' not in _setsrc)
+ck('①24 颜色名为星期标题栏背景颜色', u'星期标题栏背景颜色' in _setsrc)
+ck('①25 不再叫周末背景颜色', u'周末背景颜色' not in _setsrc)
 
 # ---------------------------------------------------------------- ② 齿轮菜单
 _i_menu = _mw.index('def _menu(')
