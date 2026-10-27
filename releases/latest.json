@@ -1,10 +1,10 @@
 {
-  "version": "1.4.7.0",
-  "tag": "v1.4.7.0",
-  "file": "desktop-calendar_1.4.7.0_arm64.deb",
-  "size": 103788,
-  "sha256": "f5147023f0e56dd88231543ee4e5c7bba812fee3d1d5bec9d53d7901d68d9c43",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/915853b1b5799932c18122ed95489ba3c0ff1232/releases/desktop-calendar_1.4.7.0_arm64.deb",
-  "released": "2026-10-26",
-  "notes": "· 软件改名「松松桌面日历」\\n· 删除待办等提示窗全部换成自绘中文窗：确认按钮是「删除 / 取消」，不再是系统弹窗的英文 Yes / No"
+  "version": "1.4.8.0",
+  "tag": "v1.4.8.0",
+  "file": "desktop-calendar_1.4.8.0_arm64.deb",
+  "size": 103800,
+  "sha256": "8a59552c8a9b287bcc2bc97d188ded9cc9a464e1eba86baf5202f9b80c9b066d",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/9f3826256a2d9b3b72f4778dadd5995582b6564e/releases/desktop-calendar_1.4.8.0_arm64.deb",
+  "released": "2026-10-27",
+  "notes": "· 软件定名「松松日历」（上一版叫松松桌面日历）\\n· 字体颜色也能调透明度：日历字体、节日字体、星期标题栏字体三项补上透明度滑杆，九个颜色项全部支持"
 }

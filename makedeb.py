@@ -18,16 +18,16 @@ with open(os.path.join(SRC, 'carry.py'), 'r', encoding='utf-8') as _f:
     CARRY_SRC = _f.read()
 APPID = 'com.desktop.calendar'
 PKG = 'desktop-calendar'
-VER = '1.4.7.0'
+VER = '1.4.8.0'
 OUT = os.path.join(ROOT, 'dist')
-APP_NAME = u'松松桌面日历'
+APP_NAME = u'松松日历'
 
 DESKTOP = u'''[Desktop Entry]
 Type=Application
-Name=松松桌面日历
-Name[zh_CN]=松松桌面日历
+Name=松松日历
+Name[zh_CN]=松松日历
 GenericName=桌面日历
-Comment=松松桌面日历 / 农历 / 待办提醒（本地版，无任何账号功能）
+Comment=松松日历 / 农历 / 待办提醒（本地版，无任何账号功能）
 Exec=desktop-calendar
 Icon=%s
 Categories=Utility;
@@ -73,7 +73,7 @@ INFO = u'''{
   "name": "%s",
   "version": "%s",
   "arch": ["arm64"],
-  "info": "松松桌面日历：月/周视图、农历与节气、节日、法定节假日与调休、待办提醒、天气、主题与颜色定制。本地版，无任何账号/会员/登录功能，数据全部保存在本机。",
+  "info": "松松日历：月/周视图、农历与节气、节日、法定节假日与调休、待办提醒、天气、主题与颜色定制。本地版，无任何账号/会员/登录功能，数据全部保存在本机。",
   "permissions": {
     "autostart": true,
     "notification": true
@@ -91,7 +91,7 @@ Maintainer: DesktopCalendar UOS Rebuild <local@localhost>
 Depends: python3 (>= 3.5), python3-pyqt5
 Suggests: dde-control-center
 Description: %(name)s（UOS / 飞腾 aarch64 原生重制版）
- 松松桌面日历：月/周视图、农历与节气、节日、
+ 松松日历：月/周视图、农历与节气、节日、
  法定节假日与调休、待办与提醒、主题与颜色定制。
  本地版：无任何会员、登录与云端同步功能，
  所有数据保存在本机 ~/.local/share/desktop-calendar/。
@@ -287,10 +287,10 @@ if [ "$ASKED" = "0" ]; then
 fi
 
 if [ "$ASKED" = "0" ] && command -v zenity >/dev/null 2>&1; then
-    if as_user 'zenity --question --title="松松桌面日历" --text="是否将松松桌面日历设为开机自动启动？" --timeout=60'; then
+    if as_user 'zenity --question --title="松松日历" --text="是否将松松日历设为开机自动启动？" --timeout=60'; then
         AUTO=1
     fi
-    if as_user 'zenity --question --title="松松桌面日历" --text="是否现在运行松松桌面日历？" --timeout=60'; then
+    if as_user 'zenity --question --title="松松日历" --text="是否现在运行松松日历？" --timeout=60'; then
         RUNNOW=1
     fi
     ASKED=1
@@ -299,10 +299,10 @@ if [ "$ASKED" = "0" ] && command -v zenity >/dev/null 2>&1; then
 fi
 
 if [ "$ASKED" = "0" ] && [ -t 0 ]; then
-    printf '松松桌面日历：设为开机自动启动？[Y/n] '
+    printf '松松日历：设为开机自动启动？[Y/n] '
     read -r a1 || a1=""
     case "$a1" in ''|[Yy]*) AUTO=1 ;; esac
-    printf '松松桌面日历：现在启动？[Y/n] '
+    printf '松松日历：现在启动？[Y/n] '
     read -r a2 || a2=""
     case "$a2" in ''|[Yy]*) RUNNOW=1 ;; esac
     ASKED=1
@@ -347,7 +347,7 @@ exit 0
 #   desktop-calendar-upgrade restore <用户> <家目录> <显示> <日志>
 # 存档那一步不在这里：它必须发生在"新包解开之前"，只能由 preinst 自己做。
 UPGRADER = r'''#!/bin/sh
-# 松松桌面日历 —— 升级前后的收尾。
+# 松松日历 —— 升级前后的收尾。
 #
 # 刻意不开 set -e：这只是个"尽力而为"的辅助脚本，
 # 任何一步出问题都不能把安装本身带崩。

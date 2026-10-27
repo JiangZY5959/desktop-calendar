@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""主窗口（松松桌面日历）。"""
+"""主窗口（松松日历）。"""
 import os
 import datetime
 

@@ -244,7 +244,7 @@ dlg = SettingsDialog(st, None)
 dlg.show()
 app.processEvents()
 ssrc = open(sys.modules['brl.settings'].__file__.replace('.pyc', '.py')).read()
-ck('④.设置页无重复标题头', u"QLabel(u'松松桌面日历 - 选项设置')" not in ssrc)
+ck('④.设置页无重复标题头', u"QLabel(u'松松日历 - 选项设置')" not in ssrc)
 
 # ⑤ 点击背景设置不崩溃（曾因 ALL_THEMES[8] 越界崩溃）
 try:
@@ -418,7 +418,7 @@ app = QApplication(sys.argv)
 import brl
 from brl import store, appctx
 
-APP = u'松松桌面日历'
+APP = u'松松日历'
 AST = os.path.join(os.environ['XDG_CONFIG_HOME'], 'autostart',
                    'desktop-calendar.desktop')
 
@@ -1913,7 +1913,7 @@ if os.path.isdir(tmpd):
 os.makedirs(tmpd)
 src = os.path.join(tmpd, 'src.desktop')
 with open(src, 'w') as f:
-    f.write('[Desktop Entry]\nType=Application\nName=松松桌面日历\nExec=desktop-calendar\n')
+    f.write('[Desktop Entry]\nType=Application\nName=松松日历\nExec=desktop-calendar\n')
 _orig_dd = A.desktop_dir
 A.desktop_dir = lambda: tmpd
 made = A.make_desktop_icon(src)
@@ -1925,9 +1925,9 @@ shutil.rmtree(tmpd, ignore_errors=True)
 ck('③.未安装时不报错', A.make_desktop_icon('/nonexistent/xx.desktop') is False)
 
 # ================= ④ 改名 =================
-ck('④.APP_NAME 已改', A.APP_NAME == u'松松桌面日历', A.APP_NAME)
-ck('④.desktop 模板已改', u'Name=松松桌面日历' in M.DESKTOP and '6335' not in M.DESKTOP)
-ck('④.打包信息已改', u'松松桌面日历' in M.INFO and '6335' not in M.INFO)
+ck('④.APP_NAME 已改', A.APP_NAME == u'松松日历', A.APP_NAME)
+ck('④.desktop 模板已改', u'Name=松松日历' in M.DESKTOP and '6335' not in M.DESKTOP)
+ck('④.打包信息已改', u'松松日历' in M.INFO and '6335' not in M.INFO)
 import brl as _B
 ck('④.版本一致(源码=打包)', M.VER == _B.__version__, '%s vs %s' % (M.VER, _B.__version__))
 leftover = []
@@ -2016,16 +2016,17 @@ from brl.settings import COLOR_DEFS
 
 try:
     for idx, (key, label, alpha) in enumerate(COLOR_DEFS):
-        if idx < 3:                       # 字体颜色 -> ColorButton
-            wd = ST.ColorButton(key, '#FF0000', '#FFFFFF')
-        else:                             # 背景/边框 -> ColorPick
-            wd = ST.ColorPick(key, '#80000000', True, '#05000000')
+        # 全部颜色行（含字体色）都带透明度滑杆 -> ColorPick
+        wd = ST.ColorPick(key, '#80000000', True, '#05000000')
         got.pop(key, None)
         wd.changed.connect(_on_changed)
         wd._pick()
         v = str(got.get(key, ''))
         valid = bool(re.match(r'^#[0-9A-F]{6}$|^#[0-9A-F]{8}$', v))
         ck('⑦.%s 发出合法颜色(%s)' % (label, key), valid, v)
+    ck('⑦.字体颜色三项带透明度滑杆',
+       all(alpha for _k, _lb, alpha in COLOR_DEFS[:3]),
+       [alpha for _k, _lb, alpha in COLOR_DEFS[:3]])
 finally:
     T.zh_color_dialog = _real_dlg
 
@@ -3544,8 +3545,8 @@ ck('⑤5 命令行输出可解析', 'action=save' in p.stdout and 'ini=1' in p.s
 # ---------------------------------------------------------------- ⑥ 与安装脚本的耦合
 import makedeb as MD          # noqa: E402
 CARRY_SRC = open(os.path.join(HERE, 'brl', 'carry.py'), encoding='utf-8').read()
-ck('⑥1 版本号 1.4.7.0', MD.VER == '1.4.7.0'
-   and __import__('brl').__version__ == '1.4.7.0', MD.VER)
+ck('⑥1 版本号 1.4.8.0', MD.VER == '1.4.8.0'
+   and __import__('brl').__version__ == '1.4.8.0', MD.VER)
 ck('⑥2 preinst 内联的就是这份源码', CARRY_SRC in MD.PREINST)
 _i = MD.PREINST.index('save --home')
 ck('⑥3 存档在 preinst 里、且早于收尾标记', _i > 0
@@ -3663,7 +3664,7 @@ ck('week.mon.iso', cal0.week_no(datetime.date(2026,12,31))
 
 # ---- 应用图标与命名
 ck('appicon', not T.app_icon().isNull())
-ck('rename.应用名', A.APP_NAME == u'松松桌面日历', A.APP_NAME)
+ck('rename.应用名', A.APP_NAME == u'松松日历', A.APP_NAME)
 
 # ---- 应用图标：卡通小松树（台历卡 + 三层绿树），圆角透明
 try:
@@ -3851,7 +3852,7 @@ else:
         out = subprocess.check_output(
             ['xwininfo', '-root', '-tree'],
             env=dict(os.environ, DISPLAY=':0')).decode('utf-8', 'ignore')
-        lived = u'松松桌面日历' in out
+        lived = u'松松日历' in out
         step('自启动项真的拉起了窗口', lived)
         polled = p.poll()
         if polled is not None and polled != 0:
