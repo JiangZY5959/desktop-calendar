@@ -150,6 +150,20 @@ def _decode_api_content(j):
     raise UpdateError(u'清单内容为空')
 
 
+def clean_notes(s):
+    """把更新说明里的字面 '\\n'（反斜杠 + n）还原成真换行。
+
+    --notes "a\nb" 这种写法传进清单的是两个字符，弹窗原样显示就会
+    看到 \n 本身，所以解析时统一规整一次。
+    """
+    if not s:
+        return ''
+    s = str(s).replace('\\r\\n', '\n').replace('\\n', '\n')
+    s = s.replace('\r\n', '\n').replace('\r', '\n')
+    lines = [ln.rstrip() for ln in s.split('\n')]
+    return '\n'.join(lines).strip('\n')
+
+
 def parse_manifest(d):
     """把 latest.json 字典规整成固定字段；字段缺失也能工作。"""
     if not isinstance(d, dict):
@@ -163,7 +177,7 @@ def parse_manifest(d):
         'version': ver,
         'tag': str(d.get('tag') or ('v' + ver)),
         'file': str(d.get('file') or (DEB_TMPL % ver)),
-        'notes': str(d.get('notes') or ''),
+        'notes': clean_notes(d.get('notes')),
         'size': int(d.get('size') or 0),
         'sha256': str(d.get('sha256') or '').lower(),
         'url': str(d.get('url') or ''),
@@ -184,7 +198,7 @@ def _from_release(timeout=TIMEOUT):
                 ver = tag[1:] if tag[:1] in ('v', 'V') else tag
                 return {'version': ver, 'tag': tag,
                         'file': DEB_TMPL % ver,
-                        'notes': str(j.get('body') or ''),
+                        'notes': clean_notes(j.get('body')),
                         'size': 0, 'sha256': '', 'url': '',
                         'released': str(j.get('created_at') or '')[:10],
                         'source': 'release'}

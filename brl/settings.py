@@ -296,7 +296,11 @@ class SettingsDialog(QDialog):
             'QLabel{color:#202020;font-size:13px;}'
             'QCheckBox{color:#202020;font-size:14px;}'
             'QPushButton{font-size:13px;}')
-        self._theme_idx = int(store.settings().value('ui/theme') or 0)
+        # 主题改过名也换过顺序：认名字优先，其次按旧顺序表翻译。
+        # 只读不写——打开设置页不该改动配置文件（升级流程正在还原时才安全）。
+        st0 = store.settings()
+        self._theme_idx = T.resolve_theme_index(st0.value('ui/theme'),
+                                                st0.value('ui/theme_name'))
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 10, 10, 10)
 
@@ -623,6 +627,8 @@ class SettingsDialog(QDialog):
     def on_theme(self, idx):
         st = self._store.settings()
         st.setValue('ui/theme', idx)
+        # 名字一起存：以后主题再改名/换顺序，按名字认就不会认错
+        st.setValue('ui/theme_name', T.ALL_THEMES[idx % len(T.ALL_THEMES)].get('name', ''))
         st.sync()
         self._theme_idx = idx
         # 换主题后，颜色覆盖显示为主题默认色（覆盖值保留）

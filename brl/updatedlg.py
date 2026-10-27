@@ -290,7 +290,9 @@ class PromptDialog(_Panel):
             'min-height:20px;}'
             'QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}'
             % (self._line, self._txt))
-        body = manifest.get('notes') or u'（该版本没有附带更新说明）'
+        # 老清单里可能存的是字面 \n，显示前再兜一次
+        body = (U.clean_notes(manifest.get('notes'))
+                or u'（该版本没有附带更新说明）')
         self._notes.setPlainText(body)
         lay.addWidget(self._notes, 1)
 

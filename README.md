@@ -5,7 +5,7 @@
 - 语言：Python 3 + PyQt5
 - 架构：aarch64（LoongArch / x86 只需重新打包，代码无架构相关分支）
 - 许可：MIT
-- 当前版本：**1.4.8.0**
+- 当前版本：**1.4.9.0**
 - 仓库：[GitHub](https://github.com/JiangZY5959/desktop-calendar) ｜ 国内镜像 [GitCode](https://gitcode.com/gcw_6ciOFeue/desktop-calendar)（**两处同步更新**，GitHub Release 附件下载更方便）
 
 ![主界面](screenshots/main.png)
@@ -14,8 +14,8 @@
 
 | 来源 | 安装包 | 平台 |
 |---|---|---|
-| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.8.0_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.8.0/desktop-calendar_1.4.8.0_arm64.deb) | UOS / 飞腾 aarch64 |
-| GitCode 直链（国内） | [desktop-calendar_1.4.8.0_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/9f3826256a2d9b3b72f4778dadd5995582b6564e/releases/desktop-calendar_1.4.8.0_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.9.0_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.0/desktop-calendar_1.4.9.0_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitCode 直链（国内） | [desktop-calendar_1.4.9.0_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/ffc3e40e287098478f77066aeaa3b7cbbc300825/releases/desktop-calendar_1.4.9.0_arm64.deb) | UOS / 飞腾 aarch64 |
 
 也可以在 GitHub 的 [Releases 页面](https://github.com/JiangZY5959/desktop-calendar/releases) 直接点附件下载。
 
@@ -26,12 +26,12 @@
 ```bash
 # GitHub
 wget -O desktop-calendar.deb \
-  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.8.0/desktop-calendar_1.4.8.0_arm64.deb
+  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.0/desktop-calendar_1.4.9.0_arm64.deb
 sudo dpkg -i desktop-calendar.deb
 
 # 或 GitCode（国内更快）
 wget -O desktop-calendar.deb \
-  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/9f3826256a2d9b3b72f4778dadd5995582b6564e/releases/desktop-calendar_1.4.8.0_arm64.deb
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/ffc3e40e287098478f77066aeaa3b7cbbc300825/releases/desktop-calendar_1.4.9.0_arm64.deb
 sudo dpkg -i desktop-calendar.deb
 ```
 
@@ -164,7 +164,7 @@ python3 make_manifest.py      # 生成 releases/latest.json（版本清单）
 ## 安装
 
 ```bash
-sudo dpkg -i desktop-calendar_1.4.8.0_arm64.deb
+sudo dpkg -i desktop-calendar_1.4.9.0_arm64.deb
 ```
 
 首次安装会弹出**一个**询问窗口（是否开机自启、是否立即运行）；**升级覆盖安装不询问**，并自动完成：另存设置与待办两个文件 → 请旧版本保存退出 → 按指针把两个文件放回 → 打开新版本。

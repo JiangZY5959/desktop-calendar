@@ -1,10 +1,10 @@
 {
-  "version": "1.4.8.0",
-  "tag": "v1.4.8.0",
-  "file": "desktop-calendar_1.4.8.0_arm64.deb",
-  "size": 103800,
-  "sha256": "8a59552c8a9b287bcc2bc97d188ded9cc9a464e1eba86baf5202f9b80c9b066d",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/9f3826256a2d9b3b72f4778dadd5995582b6564e/releases/desktop-calendar_1.4.8.0_arm64.deb",
+  "version": "1.4.9.0",
+  "tag": "v1.4.9.0",
+  "file": "desktop-calendar_1.4.9.0_arm64.deb",
+  "size": 104840,
+  "sha256": "c3af2fde1fcec406a60b3d9ff416aea69eaf19c1fb89a483c204bd166afcdf98",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/ffc3e40e287098478f77066aeaa3b7cbbc300825/releases/desktop-calendar_1.4.9.0_arm64.deb",
   "released": "2026-10-27",
-  "notes": "· 软件定名「松松日历」（上一版叫松松桌面日历）\\n· 字体颜色也能调透明度：日历字体、节日字体、星期标题栏字体三项补上透明度滑杆，九个颜色项全部支持"
+  "notes": "· 八套主题改名重排：松烟墨、星夜蓝、远山灰、曙光橙、原野绿、雨过青、薰衣紫、蜜桃粉（深色在前，浅色按橙绿青紫粉排列）\n· 升级后主题不跑偏：主题名一并记住，老配置按旧顺序表翻译回原来那一套\n· 更新提示里的版本说明不再把换行符显示成字面文字"
 }

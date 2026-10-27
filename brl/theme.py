@@ -13,40 +13,83 @@ from . import data as D
 # 字段：name 显示名 / txtclr 日历文字 / weekclr 周末与表头文字 / jiericlr 节日文字 /
 #       mainbgndclr 窗口背景 / gridbgndclr 格子背景 / weekgridbgndclr 周末格子背景 /
 #       todayclr 今日高亮 / borderoutclr 外边框 / borderinclr 内边框(格子分割线) / gridline 分割线开关
+#
+# 命名统一为「意象 + 单字颜色」的三字格式；排列顺序：深色三套在前，
+# 浅色五套按彩虹序（橙-绿-青-紫-粉）在后。配色本身没有变，只是改名重排。
 THEMES = [
-    dict(name=u'玄夜', txtclr='#F2FFFFFF', weekclr='#CCFFFFFF', jiericlr='#FFFFD54F',
+    dict(name=u'松烟墨', txtclr='#F2FFFFFF', weekclr='#CCFFFFFF', jiericlr='#FFFFD54F',
          mainbgndclr='#B4101216', gridbgndclr='#33FFFFFF', weekgridbgndclr='#26FFFFFF',
          todayclr='#8C1AEAE8', borderoutclr='#3CFFFFFF', borderinclr='#30FFFFFF',
          gridline=True),
-    dict(name=u'星空蓝', txtclr='#FFE3F2FD', weekclr='#FFBBDEFB', jiericlr='#FF4FC3F7',
+    dict(name=u'星夜蓝', txtclr='#FFE3F2FD', weekclr='#FFBBDEFB', jiericlr='#FF4FC3F7',
          mainbgndclr='#C2101A2E', gridbgndclr='#2E4FC3F7', weekgridbgndclr='#1F4FC3F7',
          todayclr='#8C0288D1', borderoutclr='#3C4FC3F7', borderinclr='#2A4FC3F7',
          gridline=True),
-    dict(name=u'石墨灰', txtclr='#FFF5F5F5', weekclr='#FFB0BEC5', jiericlr='#FFFF7043',
-         mainbgndclr='#E837474F', gridbgndclr='#2EFFFFFF', weekgridbgndclr='#1FFFFFFF',
+    dict(name=u'远山灰', txtclr='#FFF5F5F5', weekclr='#FFB0BEC5', jiericlr='#FFFF7043',
+         mainbgndclr='#E837474F', gridbgndclr='#2EFFFFFF',
+         weekgridbgndclr='#1FFFFFFF',
          todayclr='#8C607D8B', borderoutclr='#3CB0BEC5', borderinclr='#28B0BEC5',
          gridline=True),
     dict(name=u'曙光橙', txtclr='#FF4E342C', weekclr='#FF6D4C41', jiericlr='#FFD84315',
          mainbgndclr='#E5FFF3E0', gridbgndclr='#59FFCC80', weekgridbgndclr='#45FFAB91',
          todayclr='#8CFF7043', borderoutclr='#4DFFAB91', borderinclr='#40FFCC80',
          gridline=False),
-    dict(name=u'青瓷', txtclr='#FF00695C', weekclr='#FF00796B', jiericlr='#FFC62828',
+    dict(name=u'原野绿', txtclr='#FF1B5E20', weekclr='#FF2E7D32', jiericlr='#FFC62828',
+         mainbgndclr='#D9E8F5E9', gridbgndclr='#4DA5D6A7', weekgridbgndclr='#3AC8E6C9',
+         todayclr='#8C43A047', borderoutclr='#4DA5D6A7', borderinclr='#40A5D6A7',
+         gridline=False),
+    dict(name=u'雨过青', txtclr='#FF00695C', weekclr='#FF00796B', jiericlr='#FFC62828',
          mainbgndclr='#D9E0F2F1', gridbgndclr='#4D80CBC4', weekgridbgndclr='#3AB2DFDB',
          todayclr='#8C00897B', borderoutclr='#4D80CBC4', borderinclr='#4080CBC4',
+         gridline=False),
+    dict(name=u'薰衣紫', txtclr='#FF6A1B9A', weekclr='#FF8E24AA', jiericlr='#FFD500F9',
+         mainbgndclr='#D9F3E5F5', gridbgndclr='#4DCE93D8', weekgridbgndclr='#3AE1BEE7',
+         todayclr='#8C8E24AA', borderoutclr='#4DCE93D8', borderinclr='#40CE93D8',
          gridline=False),
     dict(name=u'蜜桃粉', txtclr='#FFAD1457', weekclr='#FFEC407A', jiericlr='#FFD81B60',
          mainbgndclr='#D9FCE4EC', gridbgndclr='#4DF48FB1', weekgridbgndclr='#3AF8BBD0',
          todayclr='#8CEC407A', borderoutclr='#4DF48FB1', borderinclr='#40F48FB1',
          gridline=False),
-    dict(name=u'原野绿', txtclr='#FF1B5E20', weekclr='#FF2E7D32', jiericlr='#FFC62828',
-         mainbgndclr='#D9E8F5E9', gridbgndclr='#4DA5D6A7', weekgridbgndclr='#3AC8E6C9',
-         todayclr='#8C43A047', borderoutclr='#4DA5D6A7', borderinclr='#40A5D6A7',
-         gridline=False),
-    dict(name=u'樱紫', txtclr='#FF6A1B9A', weekclr='#FF8E24AA', jiericlr='#FFD500F9',
-         mainbgndclr='#D9F3E5F5', gridbgndclr='#4DCE93D8', weekgridbgndclr='#3AE1BEE7',
-         todayclr='#8C8E24AA', borderoutclr='#4DCE93D8', borderinclr='#40CE93D8',
-         gridline=False),
 ]
+
+# v1.4.9.0 改名并重新排列过顺序。老配置里只存了「旧顺序的下标」，
+# 直接按新顺序读会让用户看到的变成另一套，所以这里留一份旧名对照表：
+# 旧名字 -> 新名字，用于把老下标翻译成新下标（幂等，认名字不认位置）。
+LEGACY_NAMES = (u'玄夜', u'星空蓝', u'石墨灰', u'曙光橙',
+                u'青瓷', u'蜜桃粉', u'原野绿', u'樱紫')
+LEGACY_RENAME = {u'玄夜': u'松烟墨', u'星空蓝': u'星夜蓝', u'石墨灰': u'远山灰',
+                 u'曙光橙': u'曙光橙', u'青瓷': u'雨过青', u'蜜桃粉': u'蜜桃粉',
+                 u'原野绿': u'原野绿', u'樱紫': u'薰衣紫'}
+
+
+def index_of_name(name):
+    """按名字找主题下标，找不到返回 -1。"""
+    for i, t in enumerate(THEMES):
+        if t.get('name') == name:
+            return i
+    return -1
+
+
+def resolve_theme_index(idx, saved_name=None):
+    """把「存下来的旧下标」换算成当前列表里的下标。
+
+    优先认存下来的主题名（以后再改顺序也不怕）；没有名字时按旧顺序表翻译。
+    """
+    if saved_name:
+        i = index_of_name(saved_name)
+        if i >= 0:
+            return i
+    try:
+        i = int(idx or 0)
+    except (TypeError, ValueError):
+        return 0
+    if 0 <= i < len(LEGACY_NAMES):
+        j = index_of_name(LEGACY_RENAME[LEGACY_NAMES[i]])
+        if j >= 0:
+            return j
+    if i < 0 or i >= len(THEMES):
+        return 0
+    return i
 
 
 def load_themes():

@@ -1475,7 +1475,7 @@ os.environ['XDG_CONFIG_HOME'] = os.path.join(fresh_home, 'config')
 os.environ['XDG_DATA_HOME'] = os.path.join(fresh_home, 'data')
 S2 = store.Store()
 st2 = S2.settings()
-ck('默认主题 = 玄夜(0)', str(st2.value('ui/theme')) == '0', str(st2.value('ui/theme')))
+ck('默认主题 = 松烟墨(0)', str(st2.value('ui/theme')) == '0', str(st2.value('ui/theme')))
 ck('默认今天格色 = 用户当前值', str(st2.value('color/todayclr')) == '#361AEAE8')
 ck('默认背景色 = 用户当前值', str(st2.value('color/mainbg')) == '#05000000')
 ck('默认外边框全透明', str(st2.value('color/borderout')) == '#00FFFFFF')
@@ -3545,8 +3545,8 @@ ck('⑤5 命令行输出可解析', 'action=save' in p.stdout and 'ini=1' in p.s
 # ---------------------------------------------------------------- ⑥ 与安装脚本的耦合
 import makedeb as MD          # noqa: E402
 CARRY_SRC = open(os.path.join(HERE, 'brl', 'carry.py'), encoding='utf-8').read()
-ck('⑥1 版本号 1.4.8.0', MD.VER == '1.4.8.0'
-   and __import__('brl').__version__ == '1.4.8.0', MD.VER)
+ck('⑥1 版本号 1.4.9.0', MD.VER == '1.4.9.0'
+   and __import__('brl').__version__ == '1.4.9.0', MD.VER)
 ck('⑥2 preinst 内联的就是这份源码', CARRY_SRC in MD.PREINST)
 _i = MD.PREINST.index('save --home')
 ck('⑥3 存档在 preinst 里、且早于收尾标记', _i > 0
@@ -3622,6 +3622,57 @@ ck('holiday.2026国庆名', D.HOLIDAY.fest(datetime.date(2026,10,1)) == u'国庆
 ck('holiday.2026春节名', D.HOLIDAY.fest(datetime.date(2026,2,17)) == u'春节')
 ck('holiday.内置条数', len(HD.FESTS) >= 15, len(HD.FESTS))
 ck('themes', len(T.ALL_THEMES) == 8, len(T.ALL_THEMES))
+
+# ---- 主题命名：统一「意象 + 单字颜色」的三字格式，不带“色”字
+_NAMES = [t.get('name') for t in T.ALL_THEMES]
+ck('theme.八套名字均 2~4 字', all(2 <= len(n) <= 4 for n in _NAMES), _NAMES)
+ck('theme.名字不带“色”字', all(u'色' not in n for n in _NAMES), _NAMES)
+ck('theme.名字不重复', len(set(_NAMES)) == 8, _NAMES)
+ck('theme.三字格式统一', all(len(n) == 3 for n in _NAMES), _NAMES)
+ck('theme.顺序=三深五浅', _NAMES == [u'松烟墨', u'星夜蓝', u'远山灰', u'曙光橙',
+                                u'原野绿', u'雨过青', u'薰衣紫', u'蜜桃粉'], _NAMES)
+
+# ---- 老配置只有旧下标：改顺序后必须仍指向用户原来那一套
+_LEGACY_EXPECT = {0: u'松烟墨', 1: u'星夜蓝', 2: u'远山灰', 3: u'曙光橙',
+                  4: u'雨过青', 5: u'蜜桃粉', 6: u'原野绿', 7: u'薰衣紫'}
+_bad = [(i, T.ALL_THEMES[T.resolve_theme_index(i)].get('name'), n)
+        for i, n in _LEGACY_EXPECT.items()
+        if T.ALL_THEMES[T.resolve_theme_index(i)].get('name') != n]
+ck('theme.旧下标迁移到原来那一套', not _bad, _bad)
+# 旧下标表只对旧数据成立，不能拿新下标再翻一遍；
+# 真正要保证的是：迁移后把名字写回去，之后再解析必须稳定
+ck('theme.写回名字后不再二次迁移',
+   all(T.resolve_theme_index(T.resolve_theme_index(i),
+                             [t.get('name') for t in T.ALL_THEMES][T.resolve_theme_index(i)])
+       == T.resolve_theme_index(i) for i in range(8)))
+_mwsrc2 = open(os.path.join(_ROOT, 'mainwin.py'), encoding='utf-8').read()
+ck('theme.启动按名字/旧下标解析',
+   "T.resolve_theme_index(st.value('ui/theme'" in _mwsrc2)
+_seg = _mwsrc2.split('def _apply_theme', 1)[1].split('def ', 1)[0]
+ck('theme.启动只读配置（不覆盖升级还原的快照）',
+   'setValue' not in _seg and 'sync()' not in _seg)
+_stsrc2 = open(os.path.join(_ROOT, 'settings.py'), encoding='utf-8').read()
+ck('theme.设置页选主题时存名字', "st.setValue('ui/theme_name'" in _stsrc2)
+ck('theme.认名字优先于下标',
+   T.resolve_theme_index(0, u'蜜桃粉') == _NAMES.index(u'蜜桃粉'),
+   T.resolve_theme_index(0, u'蜜桃粉'))
+ck('theme.存名字后改顺序也不认错（新下标自洽）',
+   T.resolve_theme_index(5, u'雨过青') == _NAMES.index(u'雨过青'))
+
+# ---- 更新说明里的字面 \n 必须变成真换行（v1.4.7.0/1.4.8.0 踩过）
+import make_manifest as _MM2
+from brl import update as _U2
+_RAW = u'· 甲\\n· 乙\\n· 丙'            # 字面反斜杠+n，模拟 --notes 传进来的样子
+_WANT = u'· 甲' + u'\n' + u'· 乙' + u'\n' + u'· 丙'    # 真换行
+ck('notes.清单生成时还原换行', _MM2.normalize_notes(_RAW) == _WANT,
+   repr(_MM2.normalize_notes(_RAW)))
+ck('notes.解析时还原换行（清单来源）',
+   _U2.clean_notes(_RAW) == _WANT and u'\\n' not in _U2.clean_notes(_RAW),
+   repr(_U2.clean_notes(_RAW)))
+_pm = _U2.parse_manifest({'version': '1.4.9.0', 'size': 1, 'sha256': 'a' * 64,
+                          'url': 'http://x/y.deb', 'notes': _RAW})
+ck('notes.parse_manifest 已清洗', _pm['notes'] == _WANT, repr(_pm['notes']))
+ck('notes.真实换行不被改动', _U2.clean_notes(_WANT) == _WANT)
 
 # ---- 素材清理：原始素材必须彻底剥离
 # 关键词用拼接与转义两种方式构造，避免字面进入公开仓库

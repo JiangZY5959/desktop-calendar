@@ -18,7 +18,7 @@ with open(os.path.join(SRC, 'carry.py'), 'r', encoding='utf-8') as _f:
     CARRY_SRC = _f.read()
 APPID = 'com.desktop.calendar'
 PKG = 'desktop-calendar'
-VER = '1.4.8.0'
+VER = '1.4.9.0'
 OUT = os.path.join(ROOT, 'dist')
 APP_NAME = u'松松日历'
 

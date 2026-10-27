@@ -634,7 +634,13 @@ class MainWindow(QWidget):
         return out
 
     def _apply_theme(self):
-        idx = int(self._store.settings().value('ui/theme') or 0)
+        st = self._store.settings()
+        # 主题改过名也换过顺序：先认存下来的主题名，没有再按旧顺序表翻译，
+        # 保证升级后用户看到的还是原来那一套。
+        # 注意这里只读不写——启动时写配置会触发 QSettings 整份重写，
+        # 把升级流程刚还原进来的键覆盖掉（v20 ④10 就是这么挂的）。
+        idx = T.resolve_theme_index(st.value('ui/theme'),
+                                    st.value('ui/theme_name'))
         cfg = dict(T.ALL_THEMES[idx % len(T.ALL_THEMES)])
         cfg.update(self._color_overrides())
         self._theme = cfg

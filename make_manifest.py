@@ -98,6 +98,20 @@ def _slim_entry(line):
     return line
 
 
+def normalize_notes(s):
+    """把字面 '\\n' 还原成真换行，并去掉空行。
+
+    --notes "a\nb" 在 shell 里传进来是反斜杠 + n 两个字符，直接写进
+    清单会让更新弹窗原样显示出来（v1.4.7.0 / v1.4.8.0 踩过）。
+    """
+    if not s:
+        return ''
+    s = str(s).replace('\\r\\n', '\n').replace('\\n', '\n')
+    s = s.replace('\r\n', '\n').replace('\r', '\n')
+    lines = [ln.strip() for ln in s.split('\n')]
+    return '\n'.join([ln for ln in lines if ln])
+
+
 def notes_from_changelog(ver):
     p = os.path.join(ROOT, 'CHANGELOG.md')
     if not os.path.exists(p):
@@ -135,6 +149,7 @@ def main(argv):
         notes = argv[argv.index('--notes') + 1]
     elif '--notes-file' in argv:
         notes = open(argv[argv.index('--notes-file') + 1], encoding='utf-8').read()
+    notes = normalize_notes(notes)
     if not notes:
         notes = notes_from_changelog(VER)
     if not notes:
