@@ -42,7 +42,7 @@ TIMEOUT = 10           # 短请求（清单 / 版本）
 DL_TIMEOUT = 30        # 下载时单次读阻塞上限
 CHUNK = 64 * 1024
 
-DEB_TMPL = 'desktop-calendar_%s_arm64.deb'
+DEB_TMPL = 'com.desktop.calendar_%s_arm64.deb'   # 包名 = appid
 
 
 class UpdateError(Exception):

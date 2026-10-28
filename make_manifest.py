@@ -34,7 +34,7 @@ sys.path.insert(0, ROOT)
 OWNER = 'gcw_6ciOFeue'
 REPO = 'desktop-calendar'
 BRANCH = 'master'
-DEB_TMPL = 'desktop-calendar_%s_arm64.deb'
+DEB_TMPL = 'com.desktop.calendar_%s_arm64.deb'   # 包名 = appid
 
 from brl import __version__ as VER        # noqa: E402
 

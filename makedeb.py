@@ -2,8 +2,10 @@
 # -*- coding: utf-8 -*-
 """打包 aarch64 deb（UOS / 飞腾 D3000）。
 
-布局采用 UOS 应用规范 /opt/apps/<appid>/，同时写入 /usr/share/applications
-与 /usr/share/icons 以保证最大兼容。
+严格按 UOS《应用打包规范》布局：应用的全部安装文件都放在
+/opt/apps/<appid>/ 下，桌面文件与图标只放 entries/，
+/usr/share 下的链接由系统的 /opt/apps 触发器（deepin-app-store-tool）
+自动建立——本机其他第三方应用（motrix、夸克、pdfarranger 等）都是这个结构。
 """
 import os
 import shutil
@@ -18,23 +20,31 @@ with open(os.path.join(SRC, 'carry.py'), 'r', encoding='utf-8') as _f:
     CARRY_SRC = _f.read()
 APPID = 'com.desktop.calendar'
 PKG = 'desktop-calendar'
-VER = '1.4.9.0'
+VER = '1.4.9.1'
 OUT = os.path.join(ROOT, 'dist')
 APP_NAME = u'松松日历'
 
+# 规范 3.1.2 支持的分辨率：16/24/32/48/128/256/512
+ICON_SIZES_PX = (16, 24, 32, 48, 128, 256, 512)
+ICON_SIZES = tuple('%dx%d' % (s, s) for s in ICON_SIZES_PX)
+
 DESKTOP = u'''[Desktop Entry]
 Type=Application
+Version=1.0
 Name=松松日历
 Name[zh_CN]=松松日历
 GenericName=桌面日历
+GenericName[zh_CN]=桌面日历
 Comment=松松日历 / 农历 / 待办提醒（本地版，无任何账号功能）
-Exec=desktop-calendar
-Icon=%s
-Categories=Utility;
-Keywords=calendar;lunar;日历;农历;待办;
+Comment[zh_CN]=松松日历 / 农历 / 待办提醒（本地版，无任何账号功能）
+Exec=/opt/apps/%(appid)s/files/bin/desktop-calendar
+Icon=%(appid)s
+Categories=Office;
+Keywords=calendar;lunar;desktop;日历;农历;待办;万年历;
 Terminal=false
-StartupNotify=false
-''' % APPID
+StartupNotify=true
+StartupWMClass=desktop-calendar
+''' % dict(appid=APPID)
 
 LAUNCHER = '''#!/bin/sh
 # 桌面日历 启动器
@@ -73,15 +83,26 @@ INFO = u'''{
   "name": "%s",
   "version": "%s",
   "arch": ["arm64"],
-  "info": "松松日历：月/周视图、农历与节气、节日、法定节假日与调休、待办提醒、天气、主题与颜色定制。本地版，无任何账号/会员/登录功能，数据全部保存在本机。",
   "permissions": {
     "autostart": true,
-    "notification": true
+    "notification": true,
+    "trayicon": true,
+    "clipboard": false,
+    "account": false,
+    "bluetooth": false,
+    "camera": false,
+    "audio_record": false,
+    "installed_apps": false
   }
 }
 ''' % (APPID, APP_NAME, VER)
 
-CONTROL = '''Package: %(pkg)s
+# 规范第 1 条要求 Package 字段就是 appid（倒置域名）。1.4.9.1 起包名从
+# desktop-calendar 改成 com.desktop.calendar；Conflicts/Replaces/Provides
+# 三行负责把旧包平滑换掉：旧包的 /usr/bin/desktop-calendar 等文件由 Replaces
+# 接管，用户数据在 $XDG_DATA_HOME / $XDG_CONFIG_HOME 里，不受换包名影响。
+# 注意 control 文件里不能写 # 注释（dpkg 解析会报"字段名 # 后必须跟冒号"）。
+CONTROL = '''Package: %(appid)s
 Version: %(ver)s
 Section: utils
 Priority: optional
@@ -90,13 +111,16 @@ Installed-Size: %(size)d
 Maintainer: DesktopCalendar UOS Rebuild <local@localhost>
 Depends: python3 (>= 3.5), python3-pyqt5
 Suggests: dde-control-center
+Conflicts: desktop-calendar
+Replaces: desktop-calendar
+Provides: desktop-calendar
 Description: %(name)s（UOS / 飞腾 aarch64 原生重制版）
  松松日历：月/周视图、农历与节气、节日、
  法定节假日与调休、待办与提醒、主题与颜色定制。
  本地版：无任何会员、登录与云端同步功能，
  所有数据保存在本机 ~/.local/share/desktop-calendar/。
  升级时保留待办与设置，并自动换成新版本。
-''' % dict(pkg=PKG, ver=VER, size=0, name=APP_NAME)
+''' % dict(appid=APPID, ver=VER, size=0, name=APP_NAME)
 
 PREINST = '''#!/bin/sh
 set -e
@@ -163,21 +187,20 @@ exit 0
 
 POSTINST = '''#!/bin/sh
 set -e
-if command -v update-desktop-database >/dev/null 2>&1; then
-    update-desktop-database -q /usr/share/applications || true
-fi
-if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-    gtk-update-icon-cache -fq /usr/share/icons/hicolor 2>/dev/null || true
-fi
-if command -v dtk-store-update >/dev/null 2>&1; then
-    dtk-store-update >/dev/null 2>&1 || true
-fi
+# 系统目录（/usr/share/applications、/usr/share/icons）由 /opt/apps 触发器
+# （deepin-app-store-tool）自动建立软链并刷新缓存，安装脚本不再碰系统文件。
+# 这里只做两件"围着这个用户"的事：放桌面快捷方式、问一句自启/是否运行。
 
 # ================= 安装后收尾：桌面图标 + 询问运行/自启 =================
 # 注意：本段开了 set -e，所有「条件不成立」的分支必须写成 if 语句，
 # 不能用 [ x ] && cmd 的写法（条件为假时返回非 0 会直接中断安装）。
 APPID=com.desktop.calendar
-DSRC=/usr/share/applications/$APPID.desktop
+APPDIR=/opt/apps/$APPID/files
+APPBIN=$APPDIR/bin/desktop-calendar
+APPUPG=$APPDIR/bin/desktop-calendar-upgrade
+# 源文件取 entries 里的原件：/usr/share/applications 下那份是触发器建的软链，
+# 触发在 postinst 之后才跑，这时候还不一定存在。
+DSRC=/opt/apps/$APPID/entries/applications/$APPID.desktop
 LOG="${DC_LOG:-/tmp/desktop-calendar-install.log}"
 : > "$LOG" 2>/dev/null || true
 
@@ -269,7 +292,7 @@ fi
 if [ "$ASKED" = "0" ]; then
     # set -e 下，命令替换失败会直接中断安装，用 || rc=$? 接住
     rc=0
-    OUT="$(as_user "timeout 75 /usr/bin/desktop-calendar --ask-install" 2>>"$LOG")" || rc=$?
+    OUT="$(as_user "timeout 75 '$APPBIN' --ask-install" 2>>"$LOG")" || rc=$?
     if [ "$rc" = "0" ]; then
         ASKED=1
         if echo "$OUT" | grep -q '^autostart=1$'; then
@@ -316,16 +339,16 @@ if [ "$ASKED" = "0" ]; then
 fi
 
 if [ "$AUTO" = "1" ]; then
-    as_user '/usr/bin/desktop-calendar --set-autostart on' >>"$LOG" 2>&1 || true
+    as_user "\"$APPBIN\" --set-autostart on" >>"$LOG" 2>&1 || true
     echo "autostart: on" >>"$LOG" 2>/dev/null || true
 fi
 if [ "$RUNNOW" = "1" ]; then
-    as_user 'setsid nohup /usr/bin/desktop-calendar >/dev/null 2>&1 &' || true
+    as_user "setsid nohup \"$APPBIN\" >/dev/null 2>&1 &" || true
     echo "launched" >>"$LOG" 2>/dev/null || true
 fi
 # 走 zenity / 终端问的，自己报个"已问过"，免得首次启动时又被问一遍
 if [ "$NEED_MARK" = "1" ]; then
-    as_user '/usr/bin/desktop-calendar --mark-asked' >>"$LOG" 2>&1 || true
+    as_user "\"$APPBIN\" --mark-asked" >>"$LOG" 2>&1 || true
 fi
 
 # ---------- 3) 升级收尾：关掉旧版本，保住数据，再把新版本打开 ----------
@@ -335,7 +358,7 @@ fi
 # 少了这一步，新旧两个进程会同时读写同一份配置和待办库，
 # 互相覆盖，表现出来就是"升级完待办和设置都没了"。
 if [ -n "$2" ]; then
-    /usr/bin/desktop-calendar-upgrade finish "$U" "$UHOME" "$UDISP" "$LOG" 2>>"$LOG" || true
+    "$APPUPG" finish "$U" "$UHOME" "$UDISP" "$LOG" 2>>"$LOG" || true
 fi
 #DEBHELPER#
 exit 0
@@ -372,7 +395,7 @@ fi
 # DC_HOME 只给自动化测试隔离用，正常安装不会设
 if [ -n "${DC_HOME:-}" ]; then UHOME="$DC_HOME"; fi
 # 真正要拉起来的程序（测试时可以换成别的，方便脱离真机验证）
-LAUNCH="${DC_LAUNCHER:-/usr/bin/desktop-calendar}"
+LAUNCH="${DC_LAUNCHER:-/opt/apps/com.desktop.calendar/files/bin/desktop-calendar}"
 
 say() {
     echo "[$(date +%H:%M:%S)] $1" >>"$LOG" 2>/dev/null || true
@@ -548,7 +571,7 @@ set -e
 # 留着它会在退出时把旧状态写回去。升级（upgrade）交给 postinst 处理——
 # 那时它还得好好的，postinst 才知道"之前在跑"，装完要重新打开。
 if [ "$1" != "upgrade" ]; then
-    /usr/bin/desktop-calendar-upgrade stop "" "" "" /tmp/desktop-calendar-install.log 2>/dev/null || true
+    /opt/apps/com.desktop.calendar/files/bin/desktop-calendar-upgrade stop "" "" "" /tmp/desktop-calendar-install.log 2>/dev/null || true
 fi
 #DEBHELPER#
 exit 0
@@ -560,7 +583,7 @@ set -e
 # 它们在本机 ~/.local/share/desktop-calendar 与 ~/.config/desktop-calendar，
 # 与包本身无关，重装/升级回来还能接着用。
 if [ "$1" = "purge" ]; then
-    rm -rf /var/backups/desktop-calendar 2>/dev/null || true
+    rm -rf "/var/backups/desktop-calendar" 2>/dev/null || true
 fi
 #DEBHELPER#
 exit 0
@@ -571,50 +594,46 @@ def build():
     if os.path.exists(OUT):
         shutil.rmtree(OUT)
     stage = os.path.join(OUT, 'stage')
-    files = os.path.join(stage, 'opt/apps/%s/files' % APPID)
-    entries = os.path.join(stage, 'opt/apps/%s/entries' % APPID)
-    os.makedirs(files)
+    appdir = os.path.join(stage, 'opt/apps/%s' % APPID)
+    files = os.path.join(appdir, 'files')
+    entries = os.path.join(appdir, 'entries')
+    os.makedirs(os.path.join(files, 'bin'))
     os.makedirs(os.path.join(entries, 'applications'))
-    os.makedirs(os.path.join(entries, 'icons/hicolor/scalable/apps'))
-    os.makedirs(os.path.join(stage, 'usr/share/applications'))
-    for sz in ('16x16', '24x24', '32x32', '48x48', '128x128', '256x256'):
-        os.makedirs(os.path.join(stage, 'usr/share/icons/hicolor/%s/apps' % sz))
+    for sz in ICON_SIZES:
+        os.makedirs(os.path.join(entries, 'icons/hicolor/%s/apps' % sz))
     os.makedirs(os.path.join(stage, 'usr/bin'))
 
     # 1. 应用本体
     shutil.copytree(SRC, os.path.join(files, 'brl'),
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
 
-    # 2. 图标（新扁平化图标，多尺寸入 hicolor）
+    # 2. 图标
+    #    规范 3.1.2：非矢量图标按分辨率放在
+    #    entries/icons/hicolor/<尺寸>/apps/<appid>.png，
+    #    支持 16/24/32/48/128/256/512。这里不放 scalable（那是给 svg 的）。
     icdir = os.path.join(SRC, 'resources/icons')
-    ic = os.path.join(icdir, 'calendar.png')
-    shutil.copy2(ic, os.path.join(entries, 'icons/hicolor/scalable/apps/%s.png' % APPID))
-    shutil.copy2(ic, os.path.join(stage, 'usr/share/icons/hicolor/256x256/apps/%s.png' % APPID))
-    for sz, name in ((16, '16x16'), (24, '24x24'), (32, '32x32'),
-                     (48, '48x48'), (128, '128x128')):
-        shutil.copy2(os.path.join(icdir, 'calendar_%d.png' % sz),
-                     os.path.join(stage, 'usr/share/icons/hicolor/%s/apps/%s.png'
-                                  % (name, APPID)))
+    for s in ICON_SIZES_PX:
+        src_ic = os.path.join(icdir, 'calendar_%d.png' % s)
+        if not os.path.isfile(src_ic):
+            src_ic = os.path.join(icdir, 'calendar.png')
+        shutil.copy2(src_ic, os.path.join(
+            entries, 'icons/hicolor/%dx%d/apps/%s.png' % (s, s, APPID)))
 
-    # 3. desktop
+    # 3. desktop：只放 entries/applications，系统映射到 /usr/share/applications
     dpath = os.path.join(entries, 'applications/%s.desktop' % APPID)
     with open(dpath, 'w', encoding='utf-8') as f:
         f.write(DESKTOP)
-    shutil.copy2(dpath, os.path.join(stage, 'usr/share/applications/%s.desktop' % APPID))
 
     # 4. 启动器 + 升级收尾工具
-    lp = os.path.join(stage, 'usr/bin', PKG)
-    with open(lp, 'w') as f:
-        f.write(LAUNCHER)
-    os.chmod(lp, 0o755)
-
-    up = os.path.join(stage, 'usr/bin', PKG + '-upgrade')
-    with open(up, 'w') as f:
-        f.write(UPGRADER)
-    os.chmod(up, 0o755)
+    #    规范 3.2：可执行程序放 files/bin；desktop 的 Exec 也指到这里。
+    for name, body in ((PKG, LAUNCHER), (PKG + '-upgrade', UPGRADER)):
+        p = os.path.join(files, 'bin', name)
+        with open(p, 'w') as f:
+            f.write(body)
+        os.chmod(p, 0o755)
 
     # 5. UOS info
-    with open(os.path.join(stage, 'opt/apps/%s/info' % APPID), 'w', encoding='utf-8') as f:
+    with open(os.path.join(appdir, 'info'), 'w', encoding='utf-8') as f:
         f.write(INFO)
 
     # 6. DEBIAN
@@ -630,8 +649,17 @@ def build():
             f.write(body)
         os.chmod(p, 0o755)
 
-    # 7. dpkg-deb
-    debout = os.path.join(OUT, '%s_%s_arm64.deb' % (PKG, VER))
+    # 7. /usr/bin 兼容入口
+    #    只放指向 /opt/apps 的软链（本机 wpsoffice、motrix 等都是这么做的）：
+    #    终端里 `desktop-calendar` 还能直接敲，老的自启动项也不会失联，
+    #    但包里不产生 /opt/apps 之外的实体文件。
+    for name in (PKG, PKG + '-upgrade'):
+        os.symlink('/opt/apps/%s/files/bin/%s' % (APPID, name),
+                   os.path.join(stage, 'usr/bin', name))
+
+    # 8. dpkg-deb
+    # 文件名按「包名_版本_架构」：包名就是 appid
+    debout = os.path.join(OUT, '%s_%s_arm64.deb' % (APPID, VER))
     subprocess.check_call(['fakeroot', 'dpkg-deb', '--build', stage, debout])
     print('built:', debout, os.path.getsize(debout), 'bytes')
     return debout

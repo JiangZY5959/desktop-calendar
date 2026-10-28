@@ -39,6 +39,7 @@ SECTIONS = [
     ('v20', '升级保护与重启'),
     ('v21', '询问时机与关于窗口'),
     ('v22', '用户数据随身包'),
+    ('v23', 'UOS打包规范'),
     ('data', '数据层自检'),
     ('e2e', '自启动端到端'),
     ('lint', '命名一致性'),
@@ -2405,7 +2406,7 @@ m = U.parse_manifest({'version': 'v9.9.9.9', 'notes': 'n', 'size': '10',
 ck('②.清单解析-字段', m['version'] == '9.9.9.9' and m['size'] == 10
    and m['sha256'] == 'ab' and m['url'] == 'http://x/y.deb' and m['tag'] == 'v9.9.9.9')
 ck('②.清单解析-默认文件名', U.parse_manifest({'version': '2.0.0.0'})['file']
-   == 'desktop-calendar_2.0.0.0_arm64.deb')
+   == 'com.desktop.calendar_2.0.0.0_arm64.deb')
 try:
     U.parse_manifest({'notes': 'no version'})
     ck('②.清单解析-缺版本报错', False)
@@ -2517,7 +2518,7 @@ U.API_HOSTS = (LOCAL2, 'http://127.0.0.1:1/unreachable')
 mf3 = U.fetch_manifest()
 ck('③.Release 兜底取到版本', mf3['version'] == '9.9.8.0' and mf3['source'] == 'release',
    mf3)
-ck('③.Release 兜底文件名', mf3['file'] == 'desktop-calendar_9.9.8.0_arm64.deb')
+ck('③.Release 兜底文件名', mf3['file'] == 'com.desktop.calendar_9.9.8.0_arm64.deb')
 
 # 全部不可达 -> 报错
 U.API_HOSTS = ('http://127.0.0.1:1/unreachable',)
@@ -2928,7 +2929,9 @@ ck('③2 preinst 内联了随身包源码', 'DC_CARRY_EOF' in MD.PREINST
    and 'SET_PREFIX' in MD.PREINST and 'def save(' in MD.PREINST)
 ck('③3 内联源码与 brl/carry.py 逐字一致', CARRY_SRC in MD.PREINST)
 ck('③4 postinst 只在升级时收尾', 'if [ -n "$2" ]' in MD.POSTINST)
-ck('③5 postinst 最后一步是放回数据', 'desktop-calendar-upgrade finish "$U"' in MD.POSTINST)
+ck('③5 postinst 最后一步是放回数据',
+   '"$APPUPG" finish "$U"' in MD.POSTINST
+   and 'APPUPG=$APPDIR/bin/desktop-calendar-upgrade' in MD.POSTINST)
 ck('③6 prerm 卸载才停实例', 'stop' in MD.PRERM and '!= "upgrade"' in MD.PRERM)
 ck('③7 postrm 不删用户数据', 'purge' in MD.POSTRM
    and '/home' not in MD.POSTRM and 'HOME' not in MD.POSTRM)
@@ -3545,15 +3548,15 @@ ck('⑤5 命令行输出可解析', 'action=save' in p.stdout and 'ini=1' in p.s
 # ---------------------------------------------------------------- ⑥ 与安装脚本的耦合
 import makedeb as MD          # noqa: E402
 CARRY_SRC = open(os.path.join(HERE, 'brl', 'carry.py'), encoding='utf-8').read()
-ck('⑥1 版本号 1.4.9.0', MD.VER == '1.4.9.0'
-   and __import__('brl').__version__ == '1.4.9.0', MD.VER)
+ck('⑥1 版本号 1.4.9.1', MD.VER == '1.4.9.1'
+   and __import__('brl').__version__ == '1.4.9.1', MD.VER)
 ck('⑥2 preinst 内联的就是这份源码', CARRY_SRC in MD.PREINST)
 _i = MD.PREINST.index('save --home')
 ck('⑥3 存档在 preinst 里、且早于收尾标记', _i > 0
    and _i < MD.PREINST.index('#DEBHELPER#'))
 ck('⑥4 preinst 只在升级时动', '"$1" = "upgrade"' in MD.PREINST)
 ck('⑥5 postinst 最后一步放回',
-   MD.POSTINST.rindex('desktop-calendar-upgrade finish') > 0
+   MD.POSTINST.rindex('"$APPUPG" finish') > 0
    and MD.POSTINST.rindex('finish') < MD.POSTINST.rindex('#DEBHELPER#'))
 ck('⑥6 收尾脚本用同一份 carry.py', 'brl/carry.py' in MD.UPGRADER
    and "' load " in MD.UPGRADER)
@@ -4027,4 +4030,192 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+# ===== [END SECTION] =====
+
+# ===== [SECTION v23] UOS打包规范 =====
+# -*- coding: utf-8 -*-
+"""按 UOS《应用打包规范》核对 dist 里的 deb。
+
+对照的条文（uosdn.uniontech.com 应用规范 / 应用打包规范）：
+  1  包名倒置域名、小写          -> control 的 Package、info 的 appid
+  2.1 安装文件全在 /opt/apps/<appid>/，钩子不改系统文件
+  3  根目录 entries / files / info 三件套
+  3.1.1 applications 下 <appid>.desktop，必填字段齐全
+  3.1.2 非矢量图标按分辨率放 entries/icons/hicolor/<N>x<N>/apps
+  3.3 info 字段（appid/name/version/arch/permissions）
+  6.1 钩子里 rm -rf 必须带引号
+"""
+import glob
+import json
+import os
+import re
+import subprocess
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+APPID = 'com.desktop.calendar'
+SIZES = (16, 24, 32, 48, 128, 256, 512)
+# 规范 3.1.1 列出的分类，填别的会被归到「其他应用」
+CATS = {'Network', 'Internet', 'Chat', 'Audio', 'Music', 'AudioVideo',
+        'Video', 'Graphics', 'Game', 'Office', 'Reading', 'Development',
+        'System'}
+PERMS = ('autostart', 'notification', 'trayicon', 'clipboard', 'account',
+         'bluetooth', 'camera', 'audio_record', 'installed_apps')
+
+
+def ck(name, cond, extra=''):
+    print(('PASS ' if cond else 'FAIL ') + name + ('  ' + str(extra) if extra else ''))
+
+
+debs = sorted(glob.glob(os.path.join(HERE, 'dist', '*.deb')))
+if not debs:
+    ck('v23.0 有 deb 可核对', False, '先跑 makedeb.py')
+    raise SystemExit(0)
+deb = debs[-1]
+tmp = tempfile.mkdtemp(prefix='v23-')
+subprocess.check_call(['dpkg-deb', '-x', deb, tmp])
+ctl = os.path.join(tmp, '_ctl')
+subprocess.check_call(['dpkg-deb', '-e', deb, ctl])
+
+appdir = os.path.join(tmp, 'opt/apps', APPID)
+ck('v23.1 根目录三件套 entries/files/info',
+   all(os.path.exists(os.path.join(appdir, x)) for x in ('entries', 'files', 'info')),
+   sorted(os.listdir(appdir)) if os.path.isdir(appdir) else appdir)
+
+# ---- 2.1 除 /usr/bin 软链外不留 /opt/apps 之外的文件
+outside = []
+for root, _dirs, fs in os.walk(tmp):
+    if root.startswith(ctl):
+        continue
+    for f in fs:
+        rel = os.path.relpath(os.path.join(root, f), tmp)
+        if rel.startswith('opt/apps/%s/' % APPID):
+            continue
+        if rel.startswith('usr/bin/') and os.path.islink(os.path.join(root, f)):
+            continue
+        outside.append(rel)
+ck('v23.2 安装文件都在 /opt/apps/<appid>/ 下', not outside, outside[:5])
+
+bad_link = []
+ub = os.path.join(tmp, 'usr/bin')
+if os.path.isdir(ub):
+    for f in os.listdir(ub):
+        tgt = os.readlink(os.path.join(ub, f)) if os.path.islink(os.path.join(ub, f)) else ''
+        if not tgt.startswith('/opt/apps/%s/' % APPID):
+            bad_link.append((f, tgt))
+ck('v23.3 /usr/bin 只放指向应用目录的软链', not bad_link, bad_link)
+
+# ---- 3.1.2 图标：按尺寸分层，png 不放 scalable
+icdir = os.path.join(appdir, 'entries/icons/hicolor')
+missing = []
+for s in SIZES:
+    p = os.path.join(icdir, '%dx%d/apps/%s.png' % (s, s, APPID))
+    if not os.path.isfile(p):
+        missing.append('%dx%d' % (s, s))
+ck('v23.4 七个分辨率图标齐全', not missing, missing)
+
+wrong = []
+try:
+    from PIL import Image
+    for s in SIZES:
+        p = os.path.join(icdir, '%dx%d/apps/%s.png' % (s, s, APPID))
+        if os.path.isfile(p) and Image.open(p).size != (s, s):
+            wrong.append((s, Image.open(p).size))
+except ImportError:
+    pass
+ck('v23.5 图标实际尺寸与目录一致', not wrong, wrong)
+
+scal_apps = os.path.join(icdir, 'scalable/apps')
+png_in_scalable = (os.path.isdir(scal_apps) and
+                   [f for f in os.listdir(scal_apps) if f.endswith('.png')])
+ck('v23.6 scalable 目录不放 png', not png_in_scalable, png_in_scalable)
+
+# ---- 3.1.1 desktop
+dp = os.path.join(appdir, 'entries/applications/%s.desktop' % APPID)
+ck('v23.7 desktop 以 appid 命名', os.path.isfile(dp), dp)
+txt = ''
+if os.path.isfile(dp):
+    try:
+        txt = open(dp, 'rb').read().decode('utf-8')
+        good_enc = True
+    except UnicodeDecodeError:
+        good_enc = False
+    ck('v23.8 desktop 编码为 UTF-8', good_enc)
+
+kv = {}
+for line in txt.splitlines():
+    if '=' in line and not line.startswith('['):
+        k, v = line.split('=', 1)
+        kv[k.strip()] = v.strip()
+
+exec_path = kv.get('Exec', '')
+exec_ok = (exec_path.startswith('/opt/apps/%s/files/' % APPID) and
+           os.path.isfile(os.path.join(tmp, exec_path.lstrip('/'))))
+ck('v23.9 Exec 指向 /opt/apps 下的程序', exec_ok, exec_path)
+ck('v23.10 Icon 用 appid 相对名', kv.get('Icon') == APPID, kv.get('Icon'))
+ck('v23.11 Type=Application', kv.get('Type') == 'Application', kv.get('Type'))
+ck('v23.12 Terminal=false', kv.get('Terminal', '').lower() == 'false', kv.get('Terminal'))
+ck('v23.13 StartupNotify=true', kv.get('StartupNotify', '').lower() == 'true',
+   kv.get('StartupNotify'))
+ck('v23.14 有 StartupWMClass', bool(kv.get('StartupWMClass')), kv.get('StartupWMClass'))
+cats = [c for c in kv.get('Categories', '').split(';') if c]
+ck('v23.15 Categories 用规范支持的分类', bool(cats) and all(c in CATS for c in cats), cats)
+
+# ---- 3.3 info
+info = {}
+try:
+    info = json.load(open(os.path.join(appdir, 'info'), encoding='utf-8'))
+    ck('v23.16 info 是合法 JSON', True)
+except Exception as e:
+    ck('v23.16 info 是合法 JSON', False, e)
+
+ctrl = open(os.path.join(ctl, 'control'), encoding='utf-8').read()
+m = re.search(r'^Version:\s*(\S+)', ctrl, re.M)
+ctrl_ver = m.group(1) if m else ''
+ck('v23.17 info.appid 与包名一致', info.get('appid') == APPID, info.get('appid'))
+ck('v23.18 info.version 与 deb 版本一致', info.get('version') == ctrl_ver,
+   (info.get('version'), ctrl_ver))
+ck('v23.19 info.version 四段纯数字',
+   bool(re.match(r'^\d+\.\d+\.\d+\.\d+$', str(info.get('version') or ''))), info.get('version'))
+ck('v23.20 info.arch 为 arm64 列表', info.get('arch') == ['arm64'], info.get('arch'))
+
+perms = info.get('permissions') or {}
+lack = [k for k in PERMS if k not in perms]
+ck('v23.21 permissions 九项齐全', not lack, lack)
+notbool = [k for k, v in perms.items() if not isinstance(v, bool)]
+ck('v23.22 permissions 值均为布尔', not notbool, notbool)
+ck('v23.23 permissions 与实际能力相符',
+   perms.get('trayicon') is True and perms.get('autostart') is True
+   and perms.get('notification') is True, perms)
+
+# ---- 1 包名：倒置域名、全小写
+pkg = re.search(r'^Package:\s*(\S+)', ctrl, re.M)
+pkg = pkg.group(1) if pkg else ''
+ck('v23.24 包名为小写倒置域名',
+   bool(re.match(r'^[a-z][a-z0-9]*(\.[a-z0-9]+){2,}$', pkg)), pkg)
+
+# ---- 6.1 钩子：rm -rf 必须带引号
+hooks = {}
+for name in ('preinst', 'postinst', 'prerm', 'postrm'):
+    p = os.path.join(ctl, name)
+    hooks[name] = open(p, encoding='utf-8').read() if os.path.isfile(p) else ''
+unq = []
+for name, body in hooks.items():
+    for line in body.splitlines():
+        ls = line.strip()
+        if ls.startswith('#') or 'rm -rf' not in ls:
+            continue
+        if '"' not in ls and "'" not in ls:
+            unq.append((name, ls))
+ck('v23.25 钩子里 rm -rf 都带引号', not unq, unq)
+
+sysmod = [n for n, b in hooks.items()
+          if 'update-desktop-database' in b or 'gtk-update-icon-cache' in b]
+ck('v23.26 钩子不改系统目录/skip 更新系统缓存', not sysmod, sysmod)
+
+# ---- 2 files/bin 下的启动器可执行
+lb = os.path.join(appdir, 'files/bin/desktop-calendar')
+ck('v23.27 启动器在 files/bin 且有可执行位',
+   os.path.isfile(lb) and os.access(lb, os.X_OK), lb)
+
 # ===== [END SECTION] =====

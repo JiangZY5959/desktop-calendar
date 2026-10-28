@@ -4,6 +4,21 @@
 
 ---
 
+## v1.4.9.1
+
+按 UOS《应用打包规范》把安装包整理了一遍，功能与界面没有改动：
+
+- **包名（control 的 Package）改成倒置域名** `com.desktop.calendar`，与 info 里的 appid 一致；同时加了 `Conflicts/Replaces/Provides: desktop-calendar`，装这一版会把旧的 desktop-calendar 平滑替换掉，待办与设置不受影响
+- **安装文件全部收进 `/opt/apps/com.desktop.calendar/`**：启动器与升级收尾工具移到 `files/bin/`，desktop 的 `Exec` 指向那里；`/usr/share/applications`、`/usr/share/icons` 里不再放实体文件，改由系统的 `/opt/apps` 触发器自动建软链（本机其他第三方应用都是这个结构）。`/usr/bin/desktop-calendar` 保留为指向应用目录的软链，终端里照旧能敲
+- **图标按分辨率归位**：`entries/icons/hicolor/<尺寸>/apps/`，补齐 16/24/32/48/128/256/512（新增 256 与 512 两档），不再把 png 塞进 `scalable` 目录
+- **desktop 文件补字段**：`StartupNotify=true`、`StartupWMClass`，分类从 `Utility` 改成规范支持的 `Office`（Utility 不在规范列表里，会被归到「其他应用」）
+- **info 文件的 permissions 九项补全**：自启 / 通知 / 托盘为 true，其余为 false，版本号与 deb 一致
+- **安装脚本不再碰系统目录**：去掉 postinst 里的 `update-desktop-database`、`gtk-update-icon-cache`（系统触发器会做），钩子里的 `rm -rf` 全部加引号
+
+> 包文件名随之变成 `com.desktop.calendar_1.4.9.1_arm64.deb`。
+
+---
+
 ## v1.4.9.0
 
 - **八套主题改名并重新排列**：统一成「意象 + 单字颜色」的三字名字——松烟墨、星夜蓝、远山灰、曙光橙、原野绿、雨过青、薰衣紫、蜜桃粉；顺序改为三套深色在前、五套浅色按橙→绿→青→紫→粉排列

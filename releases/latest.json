@@ -1,10 +1,10 @@
 {
-  "version": "1.4.9.0",
-  "tag": "v1.4.9.0",
-  "file": "desktop-calendar_1.4.9.0_arm64.deb",
-  "size": 104840,
-  "sha256": "c3af2fde1fcec406a60b3d9ff416aea69eaf19c1fb89a483c204bd166afcdf98",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/ffc3e40e287098478f77066aeaa3b7cbbc300825/releases/desktop-calendar_1.4.9.0_arm64.deb",
-  "released": "2026-10-27",
-  "notes": "· 八套主题改名重排：松烟墨、星夜蓝、远山灰、曙光橙、原野绿、雨过青、薰衣紫、蜜桃粉（深色在前，浅色按橙绿青紫粉排列）\n· 升级后主题不跑偏：主题名一并记住，老配置按旧顺序表翻译回原来那一套\n· 更新提示里的版本说明不再把换行符显示成字面文字"
+  "version": "1.4.9.1",
+  "tag": "v1.4.9.1",
+  "file": "com.desktop.calendar_1.4.9.1_arm64.deb",
+  "size": 121656,
+  "sha256": "2dcf7c823d580c09b91b622702a9203be6948614ecd5e4b7bff256d136750d99",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/2c0a494556aab14c035b366d20f8b1d5d63c9da0/releases/com.desktop.calendar_1.4.9.1_arm64.deb",
+  "released": "2026-10-28",
+  "notes": "· 安装包按 UOS 应用规范重构，装进系统应用目录\n· 包名改为 com.desktop.calendar，可直接覆盖安装，待办与设置不受影响\n· 图标补齐高清尺寸，桌面与开始菜单显示更清晰\n· 应用分类调整为「办公」，菜单归类更准确\n· 功能与界面均无改动"
 }

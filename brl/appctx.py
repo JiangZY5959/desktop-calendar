@@ -60,8 +60,11 @@ def make_desktop_icon(src=None):
     src 仅用于测试注入，正常安装时留空（取系统 applications 目录）。
     """
     d = desktop_dir()
-    src = src or '/usr/share/applications/%s.desktop' % APPID
-    if not d or not os.path.exists(src):
+    cands = [src] if src else ['/usr/share/applications/%s.desktop' % APPID,
+                               '/opt/apps/%s/entries/applications/%s.desktop'
+                               % (APPID, APPID)]
+    src = next((c for c in cands if c and os.path.exists(c)), None)
+    if not d or not src:
         return False
     dst = os.path.join(d, '%s.desktop' % APPID)
     try:
