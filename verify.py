@@ -2406,7 +2406,7 @@ m = U.parse_manifest({'version': 'v9.9.9.9', 'notes': 'n', 'size': '10',
 ck('②.清单解析-字段', m['version'] == '9.9.9.9' and m['size'] == 10
    and m['sha256'] == 'ab' and m['url'] == 'http://x/y.deb' and m['tag'] == 'v9.9.9.9')
 ck('②.清单解析-默认文件名', U.parse_manifest({'version': '2.0.0.0'})['file']
-   == 'com.desktop.calendar_2.0.0.0_arm64.deb')
+   == 'desktop-calendar_2.0.0.0_arm64.deb')
 try:
     U.parse_manifest({'notes': 'no version'})
     ck('②.清单解析-缺版本报错', False)
@@ -2518,7 +2518,7 @@ U.API_HOSTS = (LOCAL2, 'http://127.0.0.1:1/unreachable')
 mf3 = U.fetch_manifest()
 ck('③.Release 兜底取到版本', mf3['version'] == '9.9.8.0' and mf3['source'] == 'release',
    mf3)
-ck('③.Release 兜底文件名', mf3['file'] == 'com.desktop.calendar_9.9.8.0_arm64.deb')
+ck('③.Release 兜底文件名', mf3['file'] == 'desktop-calendar_9.9.8.0_arm64.deb')
 
 # 全部不可达 -> 报错
 U.API_HOSTS = ('http://127.0.0.1:1/unreachable',)
@@ -4172,7 +4172,7 @@ except Exception as e:
 ctrl = open(os.path.join(ctl, 'control'), encoding='utf-8').read()
 m = re.search(r'^Version:\s*(\S+)', ctrl, re.M)
 ctrl_ver = m.group(1) if m else ''
-ck('v23.17 info.appid 与包名一致', info.get('appid') == APPID, info.get('appid'))
+ck('v23.17 info.appid 与安装目录名一致', info.get('appid') == APPID, info.get('appid'))
 ck('v23.18 info.version 与 deb 版本一致', info.get('version') == ctrl_ver,
    (info.get('version'), ctrl_ver))
 ck('v23.19 info.version 四段纯数字',
@@ -4188,11 +4188,20 @@ ck('v23.23 permissions 与实际能力相符',
    perms.get('trayicon') is True and perms.get('autostart') is True
    and perms.get('notification') is True, perms)
 
-# ---- 1 包名：倒置域名、全小写
+# ---- 1 包名：按用户要求保留旧包名 desktop-calendar（不跟 appid 走）
 pkg = re.search(r'^Package:\s*(\S+)', ctrl, re.M)
 pkg = pkg.group(1) if pkg else ''
-ck('v23.24 包名为小写倒置域名',
-   bool(re.match(r'^[a-z][a-z0-9]*(\.[a-z0-9]+){2,}$', pkg)), pkg)
+ck('v23.24 包名保持 desktop-calendar', pkg == 'desktop-calendar', pkg)
+# 包名与 appid 不一致，安装目录/info/desktop 仍按 appid；文件名跟包名走
+ck('v23.24b deb 文件名与 Package 一致',
+   os.path.basename(deb).startswith(pkg + '_'), os.path.basename(deb))
+# 声明换包可以，但绝不能把包名写成自己（dpkg 会报 conflicts 自己）
+selfclash = [k for k in ('Conflicts', 'Replaces', 'Provides')
+             if re.search(r'^%s:\s*.*\b%s\b' % (k, re.escape(pkg)), ctrl, re.M)]
+ck('v23.24c control 不与自己冲突', not selfclash, selfclash)
+swap = re.search(r'^Conflicts:\s*(.+)$', ctrl, re.M)
+ck('v23.24d 仍能替换同路径的 com.desktop.calendar 旧包',
+   bool(swap) and 'com.desktop.calendar' in swap.group(1), swap.group(1) if swap else '')
 
 # ---- 6.1 钩子：rm -rf 必须带引号
 hooks = {}

@@ -97,12 +97,13 @@ INFO = u'''{
 }
 ''' % (APPID, APP_NAME, VER)
 
-# 规范第 1 条要求 Package 字段就是 appid（倒置域名）。1.4.9.1 起包名从
-# desktop-calendar 改成 com.desktop.calendar；Conflicts/Replaces/Provides
-# 三行负责把旧包平滑换掉：旧包的 /usr/bin/desktop-calendar 等文件由 Replaces
-# 接管，用户数据在 $XDG_DATA_HOME / $XDG_CONFIG_HOME 里，不受换包名影响。
+# 规范第 1 条要求 control 的 Package 就是 appid（倒置域名），这里按用户要求
+# 保留旧包名 desktop-calendar：包名与 appid 不一致，但安装目录 / info /
+# desktop 文件名仍按 appid（com.desktop.calendar）走，行为与 1.4.9.1 相同。
+# Conflicts/Replaces 指向 com.desktop.calendar，是因为 1.4.9.1 曾经用那个包名
+# 发过一版，两个包的文件路径完全一样，不声明换包会并存并互相覆盖。
 # 注意 control 文件里不能写 # 注释（dpkg 解析会报"字段名 # 后必须跟冒号"）。
-CONTROL = '''Package: %(appid)s
+CONTROL = '''Package: %(pkg)s
 Version: %(ver)s
 Section: utils
 Priority: optional
@@ -111,16 +112,15 @@ Installed-Size: %(size)d
 Maintainer: DesktopCalendar UOS Rebuild <local@localhost>
 Depends: python3 (>= 3.5), python3-pyqt5
 Suggests: dde-control-center
-Conflicts: desktop-calendar
-Replaces: desktop-calendar
-Provides: desktop-calendar
+Conflicts: com.desktop.calendar
+Replaces: com.desktop.calendar
 Description: %(name)s（UOS / 飞腾 aarch64 原生重制版）
  松松日历：月/周视图、农历与节气、节日、
  法定节假日与调休、待办与提醒、主题与颜色定制。
  本地版：无任何会员、登录与云端同步功能，
  所有数据保存在本机 ~/.local/share/desktop-calendar/。
  升级时保留待办与设置，并自动换成新版本。
-''' % dict(appid=APPID, ver=VER, size=0, name=APP_NAME)
+''' % dict(pkg=PKG, ver=VER, size=0, name=APP_NAME)
 
 PREINST = '''#!/bin/sh
 set -e
@@ -658,8 +658,8 @@ def build():
                    os.path.join(stage, 'usr/bin', name))
 
     # 8. dpkg-deb
-    # 文件名按「包名_版本_架构」：包名就是 appid
-    debout = os.path.join(OUT, '%s_%s_arm64.deb' % (APPID, VER))
+    # 文件名按「包名_版本_架构」
+    debout = os.path.join(OUT, '%s_%s_arm64.deb' % (PKG, VER))
     subprocess.check_call(['fakeroot', 'dpkg-deb', '--build', stage, debout])
     print('built:', debout, os.path.getsize(debout), 'bytes')
     return debout

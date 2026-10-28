@@ -12,13 +12,13 @@
 
 ## 下载
 
-> 1.4.9.1 按 UOS《应用打包规范》把包装了一遍（包名、目录结构、info 字段、图标目录合规化），功能与界面没有改动。
-> 注意 1.4.9.1 起**包名改为 `com.desktop.calendar`**，文件名随之变成 `com.desktop.calendar_1.4.9.1_arm64.deb`；包里带 `Conflicts/Replaces/Provides: desktop-calendar`，直接 `sudo dpkg -i` 就会把旧包平滑替换掉，待办与设置不受影响。
+> 1.4.9.1 按 UOS《应用打包规范》把包装了一遍（目录结构、info 字段、图标目录合规化），功能与界面没有改动；**包名仍是 `desktop-calendar`**，文件名不变。
+> 从这一版起安装位置改到 `/opt/apps/com.desktop.calendar/`（与桌面图标、自启动项使用同一个 appid），`/usr/share` 下不再放实体文件，由系统自动建软链；直接 `sudo dpkg -i` 覆盖安装即可，待办与设置不受影响。
 
 | 来源 | 安装包 | 平台 |
 |---|---|---|
-| GitHub Release（推荐，永久地址） | [com.desktop.calendar_1.4.9.1_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.1/com.desktop.calendar_1.4.9.1_arm64.deb) | UOS / 飞腾 aarch64 |
-| GitCode 直链（国内） | [com.desktop.calendar_1.4.9.1_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/2c0a494556aab14c035b366d20f8b1d5d63c9da0/releases/com.desktop.calendar_1.4.9.1_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.9.1_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.1/desktop-calendar_1.4.9.1_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitCode 直链（国内） | [desktop-calendar_1.4.9.1_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/befa5fbe1f5de03283a896c2e96d2806b6e12491/releases/desktop-calendar_1.4.9.1_arm64.deb) | UOS / 飞腾 aarch64 |
 
 也可以在 GitHub 的 [Releases 页面](https://github.com/JiangZY5959/desktop-calendar/releases) 直接点附件下载。
 
@@ -29,12 +29,12 @@
 ```bash
 # GitHub
 wget -O calendar.deb \
-  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.1/com.desktop.calendar_1.4.9.1_arm64.deb
+  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.1/desktop-calendar_1.4.9.1_arm64.deb
 sudo dpkg -i calendar.deb
 
 # 或 GitCode（国内更快）
 wget -O calendar.deb \
-  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/2c0a494556aab14c035b366d20f8b1d5d63c9da0/releases/com.desktop.calendar_1.4.9.1_arm64.deb
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/befa5fbe1f5de03283a896c2e96d2806b6e12491/releases/desktop-calendar_1.4.9.1_arm64.deb
 sudo dpkg -i calendar.deb
 ```
 
@@ -156,7 +156,7 @@ python3 makedeb.py            # 生成 deb
 python3 make_manifest.py      # 生成 releases/latest.json（版本清单）
 ```
 
-产物在 `dist/com.desktop.calendar_<版本>_arm64.deb`。发布顺序：先把 deb 放到 `releases/`，再跑 `make_manifest.py`，然后把 deb、清单、README、CHANGELOG 一起提交——清单里的下载直链依赖 deb 的 blob sha，三者必须同一次提交。
+产物在 `dist/desktop-calendar_<版本>_arm64.deb`。发布顺序：先把 deb 放到 `releases/`，再跑 `make_manifest.py`，然后把 deb、清单、README、CHANGELOG 一起提交——清单里的下载直链依赖 deb 的 blob sha，三者必须同一次提交。
 
 > 打包脚本使用持久化的 `dist/stage` 暂存目录。如果删除过源码里的资源文件，请先 `rm -rf dist/stage` 再打包，否则旧文件会混进新包。
 
@@ -167,7 +167,7 @@ python3 make_manifest.py      # 生成 releases/latest.json（版本清单）
 ## 安装
 
 ```bash
-sudo dpkg -i com.desktop.calendar_1.4.9.1_arm64.deb
+sudo dpkg -i desktop-calendar_1.4.9.1_arm64.deb
 ```
 
 首次安装会弹出**一个**询问窗口（是否开机自启、是否立即运行）；**升级覆盖安装不询问**，并自动完成：另存设置与待办两个文件 → 请旧版本保存退出 → 按指针把两个文件放回 → 打开新版本。
@@ -175,10 +175,10 @@ sudo dpkg -i com.desktop.calendar_1.4.9.1_arm64.deb
 卸载：
 
 ```bash
-sudo dpkg -r com.desktop.calendar
+sudo dpkg -r desktop-calendar
 ```
 
-（1.4.9.1 之前装的旧包名为 `desktop-calendar`，用 `sudo dpkg -r desktop-calendar` 卸载；装了新版后旧包已被替换。）
+（1.4.9.1 曾短暂用过 `com.desktop.calendar` 这个包名，本次已改回 `desktop-calendar`；若那版已经装上，新版会把它替换掉。）
 
 卸载不影响待办与设置；彻底清除（`purge`）也只清掉系统级的升级备份，用户数据仍保留。
 
