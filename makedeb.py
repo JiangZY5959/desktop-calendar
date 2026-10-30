@@ -20,9 +20,12 @@ with open(os.path.join(SRC, 'carry.py'), 'r', encoding='utf-8') as _f:
     CARRY_SRC = _f.read()
 APPID = 'com.desktop.calendar'
 PKG = 'desktop-calendar'
-VER = '1.4.9.1'
+# 版本号与软件名的唯一来源是 brl/__init__.py——别再手抄一份，
+# 抄漏过一次（改了源码没改这里，打出来的还是旧版本号）
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+from brl import __version__ as VER, APP_NAME        # noqa: E402
 OUT = os.path.join(ROOT, 'dist')
-APP_NAME = u'松松日历'
 
 # 规范 3.1.2 支持的分辨率：16/24/32/48/128/256/512
 ICON_SIZES_PX = (16, 24, 32, 48, 128, 256, 512)

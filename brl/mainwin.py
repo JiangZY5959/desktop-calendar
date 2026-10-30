@@ -920,8 +920,17 @@ class MainWindow(QWidget):
             last = int(st.value('update/last') or 0)
         except (TypeError, ValueError):
             last = 0
-        if U.due(mode, last):
-            self._updater.check(silent=True)
+        if not U.due(mode, last):
+            return
+        # 上次检查失败（多半是接口 429 限流）就先歇 6 小时，
+        # 别每小时都去撞一次、一直弹失败提示
+        try:
+            fail = int(st.value('update/fail') or 0)
+        except (TypeError, ValueError):
+            fail = 0
+        if U.fail_backoff(fail):
+            return
+        self._updater.check(silent=True)
 
     def check_updates(self, silent=False, parent=None):
         """手动 / 自动检查更新。silent=True 时只在发现新版时提示。"""

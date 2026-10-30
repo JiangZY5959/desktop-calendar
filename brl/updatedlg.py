@@ -252,12 +252,13 @@ class BusyDialog(_Panel):
 
 
 class PromptDialog(_Panel):
-    """发现新版本提示。choice ∈ {'update', 'later', 'skip'}"""
+    """发现新版本提示。choice ∈ {'store', 'update', 'later', 'skip'}"""
 
     def __init__(self, manifest, theme, parent=None):
-        _Panel.__init__(self, theme, parent, 500, 400, u'检查更新')
+        _Panel.__init__(self, theme, parent, 500, 420, u'检查更新')
         self.manifest = dict(manifest or {})
         self.choice = 'later'
+        self._has_store = U.store_present()
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 12, 16, 14)
         lay.setSpacing(6)
@@ -276,6 +277,15 @@ class PromptDialog(_Panel):
 
         info = u'新版本 v%s　　当前 v%s' % (manifest.get('version', ''), APP_VER)
         lay.addWidget(self._label(info, 12, dim=True))
+
+        if self._has_store:
+            tip = (u'已在应用商店上架，推荐在应用商店里更新；'
+                   u'也可以使用软件自带更新（需要输入管理员密码）。')
+        else:
+            tip = u'使用软件自带更新（需要输入管理员密码）。'
+        lb_tip = self._label(tip, 12, dim=True)
+        lb_tip.setWordWrap(True)
+        lay.addWidget(lb_tip)
 
         self._notes = QTextBrowser()
         self._notes.setFrameShape(QTextBrowser.NoFrame)
@@ -300,14 +310,18 @@ class PromptDialog(_Panel):
         row.setSpacing(8)
         b_skip = self._btn(u'跳过此版本', w=100)
         b_skip.clicked.connect(self._on_skip)
-        b_later = self._btn(u'稍后再说', w=88)
+        b_later = self._btn(u'稍后再说', w=84)
         b_later.clicked.connect(self._on_later)
-        b_go = self._btn(u'立即更新', primary=True, w=96)
-        b_go.clicked.connect(self._on_update)
+        b_local = self._btn(u'软件内更新', primary=not self._has_store, w=104)
+        b_local.clicked.connect(self._on_update)
         row.addWidget(b_skip)
         row.addStretch(1)
         row.addWidget(b_later)
-        row.addWidget(b_go)
+        row.addWidget(b_local)
+        if self._has_store:
+            b_store = self._btn(u'去应用商店', primary=True, w=110)
+            b_store.clicked.connect(self._on_store)
+            row.addWidget(b_store)
         lay.addLayout(row)
 
     def _on_skip(self):
@@ -320,6 +334,10 @@ class PromptDialog(_Panel):
 
     def _on_update(self):
         self.choice = 'update'
+        self.accept()
+
+    def _on_store(self):
+        self.choice = 'store'
         self.accept()
 
 
@@ -378,13 +396,13 @@ class DownloadDialog(_Panel):
 # ---------------------------------------------------------------- 线程
 class _CheckThread(QThread):
     ok = pyqtSignal(object)
-    fail = pyqtSignal(str)
+    fail = pyqtSignal(object)
 
     def run(self):
         try:
             self.ok.emit(U.fetch_manifest())
         except Exception as e:
-            self.fail.emit(str(e))
+            self.fail.emit(e)
 
 
 class _DownloadThread(QThread):
@@ -500,10 +518,24 @@ class UpdateFlow(QObject):
 
     def _on_failed(self, err, silent):
         self._close_busy()
-        self._log(u'检查失败：%s' % err)
-        if not silent:
-            self._msg(u'检查更新失败',
-                      u'%s\n\n可以稍后再试，或直接到\n%s\n手动下载。' % (err, U.PAGE))
+        msg = str(err)
+        detail = getattr(err, 'detail', '') or msg
+        self._log(u'检查失败：%s ｜ %s' % (msg, detail))
+        st = self._st()
+        try:
+            # 记下这次失败：接口临时限流时，自动检查别再每小时撞一次
+            st.setValue('update/fail', int(time.time()))
+            st.sync()
+        except Exception:
+            pass
+        if silent:
+            return
+        code = getattr(err, 'code', 0)
+        if code == 429:
+            text = u'更新服务器现在有点忙，请过一会儿再试。'
+        else:
+            text = msg if msg.endswith(u'。') else msg + u'。'
+        self._msg(u'检查更新失败', text)
 
     def _on_checked(self, m, silent):
         self._close_busy()
@@ -511,6 +543,7 @@ class UpdateFlow(QObject):
         try:
             st.setValue('update/last', int(time.time()))
             st.setValue('update/lastver', str(m.get('version') or ''))
+            st.setValue('update/fail', 0)
             st.sync()
         except Exception:
             pass
@@ -545,6 +578,15 @@ class UpdateFlow(QObject):
             st.setValue('update/skip', str(m.get('version') or ''))
             st.sync()
             self._log(u'用户跳过 v%s' % m.get('version'))
+            return
+        if dlg.choice == 'store':
+            ok, why = U.open_store()
+            self._log(u'跳转应用商店：%s（%s）' %
+                      (u'成功' if ok else u'失败', why))
+            if not ok:
+                self._msg(u'打开应用商店失败',
+                          u'%s\n\n可以在开始菜单里打开「应用商店」，'
+                          u'搜索「%s」后点更新。' % (why, APP_NAME))
             return
         if dlg.choice == 'update':
             self._download(m)

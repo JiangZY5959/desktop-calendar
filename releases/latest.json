@@ -1,10 +1,10 @@
 {
-  "version": "1.4.9.1",
-  "tag": "v1.4.9.1",
-  "file": "desktop-calendar_1.4.9.1_arm64.deb",
-  "size": 121652,
-  "sha256": "ccbc3302c3d59a7caa723154ca1c376aacb6c9f8474719e3d21ff24e0f6917f8",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/befa5fbe1f5de03283a896c2e96d2806b6e12491/releases/desktop-calendar_1.4.9.1_arm64.deb",
-  "released": "2026-10-28",
-  "notes": "· 安装包按 UOS 应用规范重构，装进系统应用目录\n· 安装位置改为 /opt/apps/com.desktop.calendar，桌面与菜单图标由系统自动生成\n· 图标补齐高清尺寸，桌面与开始菜单显示更清晰\n· 应用分类调整为「办公」，菜单归类更准确\n· 功能与界面均无改动，直接覆盖安装，待办与设置不受影响"
+  "version": "1.4.9.2",
+  "tag": "v1.4.9.2",
+  "file": "desktop-calendar_1.4.9.2_arm64.deb",
+  "size": 123764,
+  "sha256": "9a740456eaa147fa6b0a686f94347ad4c03b88a84765cad4a4a6cd7cda1dbbb1",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/eb1f950768218b79ed6a36cf6cd31b6d4bb00bc7/releases/desktop-calendar_1.4.9.2_arm64.deb",
+  "released": "2026-10-30",
+  "notes": "· 修好检查更新偶尔失败的问题，不再弹出满屏报错\n· 获取更新信息更稳定，偶发失败也不会反复重试\n· 发现新版本可以直接跳转应用商店更新\n· 也可以继续用软件内更新（需要输入管理员密码）"
 }

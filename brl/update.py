@@ -37,16 +37,52 @@ PAGE = 'https://gitcode.com/%s/%s' % (OWNER, REPO)
 BLOB_URL = 'https://raw.gitcode.com/%s/%s/blobs/%%s/%%s' % (OWNER, REPO)
 # 两个域名的接口互为备份：api.gitcode.com 有时会被限流，主站接口通常还在
 API_HOSTS = ('https://api.gitcode.com/api/v5', 'https://gitcode.com/api/v5')
+# 清单的 raw 直链：走文件 CDN，不经过 API，因此不会被接口限流（429）波及。
+# 接口频繁 429 时这条就是主力，接口退居兜底。
+RAW_MANIFEST = ('https://raw.gitcode.com/%s/%s/raw/%s/%s'
+                % (OWNER, REPO, BRANCH, MANIFEST))
+
+# 应用商店（2026-10 起已上架 UOS 商店）：新版本交给商店更新，
+# 不再自己下载 deb 覆盖安装——自己 dpkg 会让商店里的版本记录对不上。
+STORE_APPID = 'desktop-calendar'                       # 商店里的包名
+STORE_CLIENT = 'deepin-home-appstore-client'
+STORE_BUS = 'com.home.appstore.client'
+STORE_PATH = '/com/home/appstore/client'
+STORE_SERVICE = '/usr/share/dbus-1/services/com.home.appstore.client.service'
+# 官方支持的两个业务 URI 之一：app_detail_info/<包名> 直接落到应用详情页
+STORE_URI = ('appstore://%s?app_detail_info/%s'
+             % (STORE_CLIENT, STORE_APPID))
 
 TIMEOUT = 10           # 短请求（清单 / 版本）
 DL_TIMEOUT = 30        # 下载时单次读阻塞上限
 CHUNK = 64 * 1024
 
+# 检查失败后的退避：接口临时限流时别每小时都去撞一次
+FAIL_BACKOFF = 6 * 3600
+
 DEB_TMPL = 'desktop-calendar_%s_arm64.deb'   # 包名_版本_架构
 
 
 class UpdateError(Exception):
-    """检查 / 下载 / 安装过程中的可展示错误。"""
+    """检查 / 下载 / 安装过程中的可展示错误。
+
+    ``code`` 是 HTTP 状态码（0 表示网络层错误），``detail`` 只进日志、
+    不往用户界面上贴——之前把两个接口的原始异常拼成一句话弹出来，
+    用户看到的是 "HTTP 429（https://api.gitcode.com/…）" 这种天书。
+    """
+
+    def __init__(self, msg, code=0, detail=''):
+        Exception.__init__(self, msg)
+        self.code = code
+        self.detail = detail or msg
+
+
+class RateLimited(UpdateError):
+    """被接口限流（HTTP 429）。"""
+
+    def __init__(self, detail=''):
+        UpdateError.__init__(self, u'更新服务器暂时繁忙，请稍后再试', 429, detail)
+
 
 
 class Cancelled(Exception):
@@ -122,9 +158,14 @@ def _get(url, timeout=TIMEOUT, accept='application/json, */*'):
     try:
         r = urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as e:
-        raise UpdateError(u'HTTP %s（%s）' % (e.code, url.split('?')[0]))
+        # 429 = 接口限流：这是最常见的一种，单独给它一句人话，
+        # 不再把 URL 塞到界面上
+        if e.code == 429:
+            raise RateLimited(u'HTTP 429 %s' % url.split('?')[0])
+        raise UpdateError(u'更新服务器返回错误（HTTP %s）' % e.code,
+                          e.code, url.split('?')[0])
     except Exception as e:
-        raise UpdateError(u'连接不上更新服务器：%s' % (e,))
+        raise UpdateError(u'连不上更新服务器，请检查网络后重试', 0, str(e))
     try:
         return r.read()
     finally:
@@ -225,9 +266,31 @@ def _from_release(timeout=TIMEOUT):
     raise UpdateError(u'读取版本信息失败')
 
 
+def _from_raw(timeout=TIMEOUT):
+    """清单的 raw 直链（走文件 CDN，不经过 API，因此不受接口限流影响）。"""
+    body = _get(RAW_MANIFEST, timeout, accept='application/json, text/plain, */*')
+    txt = body.decode('utf-8', 'replace').lstrip()
+    if txt[:1] != '{':
+        # 分支或路径不对时，CDN 会回一个 HTML 页面，当作读不到处理
+        raise UpdateError(u'清单不是 JSON', 0, txt[:120])
+    m = parse_manifest(json.loads(txt))
+    m['source'] = 'raw'
+    return m
+
+
 def fetch_manifest(timeout=TIMEOUT):
-    """读版本清单。返回 parse_manifest() 的字典，失败抛 UpdateError。"""
-    errs = []
+    """读版本清单。返回 parse_manifest() 的字典，失败抛 UpdateError。
+
+    顺序：raw 直链 -> 两个接口 -> Release/Tag 兜底。
+    raw 放第一位，是因为接口会限流（HTTP 429），而文件 CDN 不会。
+    """
+    errs = []          # 给日志看
+    objs = []          # 给"到底是哪一种失败"判断用
+    try:
+        return _from_raw(timeout)
+    except Exception as e:
+        errs.append(u'raw -> %s' % getattr(e, 'detail', e))
+        objs.append(e)
     for host in API_HOSTS:
         url = '%s/repos/%s/%s/contents/%s?ref=%s' % (host, OWNER, REPO,
                                                       MANIFEST, BRANCH)
@@ -237,12 +300,20 @@ def fetch_manifest(timeout=TIMEOUT):
             m['source'] = url
             return m
         except Exception as e:
-            errs.append(u'%s → %s' % (host.split('//')[-1].split('/')[0], e))
+            errs.append(u'%s -> %s' % (host.split('//')[-1].split('/')[0],
+                                       getattr(e, 'detail', e)))
+            objs.append(e)
     try:
         return _from_release(timeout)
     except Exception as e:
-        errs.append(u'release → %s' % e)
-    raise UpdateError(u'；'.join(errs) or u'读取版本信息失败')
+        errs.append(u'release -> %s' % e)
+        objs.append(e)
+    # 有一路是 429 就按"服务器忙"处理：这时说"读不到版本信息"会让人
+    # 以为是自己网络坏了，实际上是被限流，等一会儿就好
+    codes = [getattr(e, 'code', 0) for e in objs]
+    if 429 in codes:
+        raise RateLimited(u'；'.join(errs))
+    raise UpdateError(u'读取版本信息失败，请稍后再试', 0, u'；'.join(errs))
 
 
 def resolve_url(manifest, timeout=TIMEOUT):
@@ -425,6 +496,66 @@ def restart_command():
     if exe:
         return [exe]
     return [sys.executable, '-m', 'brl']
+
+
+# ---------------------------------------------------------------- 应用商店
+def store_present():
+    """系统里有没有 UOS 应用商店（有客户端或它的 DBus 服务都算）。"""
+    return bool(_which(STORE_CLIENT)) or os.path.exists(STORE_SERVICE)
+
+
+def _spawn(argv):
+    """把命令丢到后台，不等它退出（商店窗口什么时候起来不归我们管）。"""
+    subprocess.Popen(argv,
+                     stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL,
+                     start_new_session=True,
+                     close_fds=True)
+
+
+def open_store():
+    """打开应用商店里本应用的详情页。返回 (ok, 说明)。
+
+    两条路都走官方支持的方式：
+      1. 客户端带业务 URI：商店已运行时由单实例机制转给已有窗口；
+         没运行时会顺带把窗口拉起来并直接落在详情页；
+      2. DBus ``openBusinessUri``：商店的服务由 DBus 激活。
+    """
+    if not store_present():
+        return False, u'系统里没有找到应用商店'
+    cli = _which(STORE_CLIENT)
+    if cli:
+        try:
+            _spawn([cli, STORE_URI])
+            return True, cli
+        except Exception as e:
+            first = u'%s' % (e,)
+    else:
+        first = u'没有找到 %s' % STORE_CLIENT
+    ds = _which('dbus-send')
+    if ds:
+        try:
+            _spawn([ds, '--session', '--print-reply=literal',
+                    '--dest=%s' % STORE_BUS, STORE_PATH,
+                    '%s.openBusinessUri' % STORE_BUS,
+                    'string:app_detail_info/%s' % STORE_APPID])
+            return True, 'dbus'
+        except Exception as e:
+            return False, u'%s / %s' % (first, e)
+    return False, first
+
+
+def fail_backoff(ts, now_ts=None):
+    """检查失败后是否还在退避期（失败一次就别每小时都去撞）。"""
+    if not ts:
+        return False
+    import time
+    now_ts = time.time() if now_ts is None else now_ts
+    try:
+        return (now_ts - float(ts)) < FAIL_BACKOFF
+    except (TypeError, ValueError):
+        return False
 
 
 def relaunch(delay=1.0, env=None):

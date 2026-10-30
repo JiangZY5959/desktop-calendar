@@ -5,36 +5,36 @@
 - 语言：Python 3 + PyQt5
 - 架构：aarch64（LoongArch / x86 只需重新打包，代码无架构相关分支）
 - 许可：MIT
-- 当前版本：**1.4.9.1**
+- 当前版本：**1.4.9.2**
 - 仓库：[GitHub](https://github.com/JiangZY5959/desktop-calendar) ｜ 国内镜像 [GitCode](https://gitcode.com/gcw_6ciOFeue/desktop-calendar)（**两处同步更新**，GitHub Release 附件下载更方便）
 
 ![主界面](screenshots/main.png)
 
 ## 下载
 
-> 1.4.9.1 按 UOS《应用打包规范》把包装了一遍（目录结构、info 字段、图标目录合规化），功能与界面没有改动；**包名仍是 `desktop-calendar`**，文件名不变。
-> 从这一版起安装位置改到 `/opt/apps/com.desktop.calendar/`（与桌面图标、自启动项使用同一个 appid），`/usr/share` 下不再放实体文件，由系统自动建软链；直接 `sudo dpkg -i` 覆盖安装即可，待办与设置不受影响。
+> 1.4.9.2 修了「检查更新」在服务器限流时弹出满屏报错的问题，并且**发现新版本时可以直接跳到应用商店更新**（软件已上架 UOS 应用商店）；想留在软件里更新的，也可以选「软件内更新」。
+> 安装位置在 `/opt/apps/com.desktop.calendar/`（与桌面图标、自启动项使用同一个 appid），`/usr/share` 下不放实体文件，由系统自动建软链；直接 `sudo dpkg -i` 覆盖安装即可，待办与设置不受影响。
 
 | 来源 | 安装包 | 平台 |
 |---|---|---|
-| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.9.1_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.1/desktop-calendar_1.4.9.1_arm64.deb) | UOS / 飞腾 aarch64 |
-| GitCode 直链（国内） | [desktop-calendar_1.4.9.1_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/befa5fbe1f5de03283a896c2e96d2806b6e12491/releases/desktop-calendar_1.4.9.1_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.9.2_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.2/desktop-calendar_1.4.9.2_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitCode 直链（国内） | [desktop-calendar_1.4.9.2_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/eb1f950768218b79ed6a36cf6cd31b6d4bb00bc7/releases/desktop-calendar_1.4.9.2_arm64.deb) | UOS / 飞腾 aarch64 |
 
 也可以在 GitHub 的 [Releases 页面](https://github.com/JiangZY5959/desktop-calendar/releases) 直接点附件下载。
 
-安装包同时放在仓库的 [`releases/`](releases/) 目录中，可在网页端点开目录后右上角直接下载。已安装旧版的用户不必手动下载：**软件会自己检查更新并安装**（见下文）。
+安装包同时放在仓库的 [`releases/`](releases/) 目录中，可在网页端点开目录后右上角直接下载。已安装旧版的用户不必手动下载：**软件会提示新版本，可直接跳到应用商店更新**（见下文）。
 
 命令行下载（二选一）：
 
 ```bash
 # GitHub
 wget -O calendar.deb \
-  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.1/desktop-calendar_1.4.9.1_arm64.deb
+  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.2/desktop-calendar_1.4.9.2_arm64.deb
 sudo dpkg -i calendar.deb
 
 # 或 GitCode（国内更快）
 wget -O calendar.deb \
-  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/befa5fbe1f5de03283a896c2e96d2806b6e12491/releases/desktop-calendar_1.4.9.1_arm64.deb
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/eb1f950768218b79ed6a36cf6cd31b6d4bb00bc7/releases/desktop-calendar_1.4.9.2_arm64.deb
 sudo dpkg -i calendar.deb
 ```
 
@@ -96,7 +96,9 @@ sudo dpkg -i calendar.deb
 ### 检查更新
 - 数据源是 **GitCode 公开仓库里的版本清单**（也可在上方的 GitHub Release 页面手动下载），**只读公开数据，不需要账号或令牌**
 - GitHub 与 GitCode 两处同时发布，内容完全一致；软件内置的主数据源是 GitCode 清单（国内访问更快），GitHub 作为手动下载的镜像
+- 清单**优先走文件直链**，取不到才退到接口——接口被限流（HTTP 429）时也能正常检查；失败一次后自动检查歇 6 小时，不会反复弹提示
 - 频率**默认每天检查一次**，设置里可改为每周 / 每月 / 仅手动；选「仅手动」后平时零联网
+- **发现新版本，推荐在应用商店更新**：软件已上架 UOS 应用商店，提示窗里点「去应用商店」直接打开商店里本应用的详情页；也可以选「软件内更新」由软件自己下载安装（需要输入管理员密码）
 - 选项设置里有与「基础设置」「背景设置」同级的**独立「检查更新」页签**：看频率、看上次检查时间、点「立即检查」（项目主页入口在「关于」里）
 - 发现新版本时弹出提示，附更新说明，可选 **立即更新 / 稍后再说 / 跳过此版本**（跳过只针对这一个版本，下个版本照常提示）
 - 后台静默检查不打扰：没新版本、查不到（断网等）都只是安静记一条日志
@@ -167,7 +169,7 @@ python3 make_manifest.py      # 生成 releases/latest.json（版本清单）
 ## 安装
 
 ```bash
-sudo dpkg -i desktop-calendar_1.4.9.1_arm64.deb
+sudo dpkg -i desktop-calendar_1.4.9.2_arm64.deb
 ```
 
 首次安装会弹出**一个**询问窗口（是否开机自启、是否立即运行）；**升级覆盖安装不询问**，并自动完成：另存设置与待办两个文件 → 请旧版本保存退出 → 按指针把两个文件放回 → 打开新版本。

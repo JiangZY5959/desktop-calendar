@@ -2469,6 +2469,9 @@ th.start()
 LOCAL = 'http://127.0.0.1:%d/api/v5' % PORT
 
 _real_hosts = U.API_HOSTS
+_real_raw = U.RAW_MANIFEST
+# 这一节只测接口路径：把 raw 直链指到不可达，免得真去线上取清单
+U.RAW_MANIFEST = 'http://127.0.0.1:1/raw-manifest.json'
 U.API_HOSTS = (LOCAL, 'http://127.0.0.1:1/unreachable')
 
 mf = U.fetch_manifest()
@@ -2520,14 +2523,91 @@ ck('③.Release 兜底取到版本', mf3['version'] == '9.9.8.0' and mf3['source
    mf3)
 ck('③.Release 兜底文件名', mf3['file'] == 'desktop-calendar_9.9.8.0_arm64.deb')
 
-# 全部不可达 -> 报错
+# 全部不可达 -> 报错（文案里不许出现接口地址，这是 1.4.9.2 修的那条）
 U.API_HOSTS = ('http://127.0.0.1:1/unreachable',)
 try:
     U.fetch_manifest()
     ck('③.全挂时抛 UpdateError', False)
-except U.UpdateError:
+except U.UpdateError as e:
     ck('③.全挂时抛 UpdateError', True)
+    ck('③.失败文案不含接口地址', 'http' not in str(e) and '//' not in str(e), str(e))
+
+
+# ---- raw 直链优先：接口全 429 也能拿到清单（1.4.9.2）
+class HandlerRaw(Handler):
+    def do_GET(self):
+        p = self.path.split('?')[0]
+        SRV['hits'].append(self.path)
+        if p.endswith('/raw-manifest.json'):
+            self._send(200, {'version': '9.9.7.0', 'file': 'x.deb'})
+        else:
+            self._send(429, {'error_code': 429})
+
+
+httpd_raw = ThreadingHTTPServer(('127.0.0.1', 0), HandlerRaw)
+RAW_PORT = httpd_raw.server_address[1]
+threading.Thread(target=httpd_raw.serve_forever, daemon=True).start()
+U.RAW_MANIFEST = 'http://127.0.0.1:%d/raw-manifest.json' % RAW_PORT
+U.API_HOSTS = ('http://127.0.0.1:%d/api/v5' % RAW_PORT,)
+SRV['hits'][:] = []
+mf4 = U.fetch_manifest()
+ck('③.raw 直链优先', mf4['version'] == '9.9.7.0' and mf4['source'] == 'raw',
+   mf4['source'])
+ck('③.raw 命中后不再打接口',
+   not [h for h in SRV['hits'] if '/api/v5' in h], SRV['hits'][:4])
+
+# ---- 全 429：给「服务器忙」而不是一串 URL
+class Handler429(Handler):
+    def do_GET(self):
+        self._send(429, {'error_code': 429})
+
+
+httpd429 = ThreadingHTTPServer(('127.0.0.1', 0), Handler429)
+P429 = httpd429.server_address[1]
+threading.Thread(target=httpd429.serve_forever, daemon=True).start()
+U.RAW_MANIFEST = 'http://127.0.0.1:%d/raw-manifest.json' % P429
+U.API_HOSTS = ('http://127.0.0.1:%d/api/v5' % P429,)
+try:
+    U.fetch_manifest()
+    ck('③.全 429 抛 RateLimited', False)
+except U.RateLimited as e:
+    ck('③.全 429 抛 RateLimited', getattr(e, 'code', 0) == 429)
+    ck('③.429 文案是人话', u'稍后再试' in str(e) and 'http' not in str(e), str(e))
+except Exception as e:
+    ck('③.全 429 抛 RateLimited', False, e)
+
+# ---- 失败退避：刚失败过就别每小时再撞
+ck('③.失败退避-1 小时内不再查', U.fail_backoff(time.time() - 3600))
+ck('③.失败退避-7 小时后可再查', not U.fail_backoff(time.time() - 7 * 3600))
+ck('③.失败退避-没记录时直接查', not U.fail_backoff(0))
+
+# ---- 商店跳转：用官方支持的业务 URI，别自己拼网页地址
+ck('③.商店 URI 是 app_detail_info',
+   U.STORE_URI == 'appstore://deepin-home-appstore-client?app_detail_info/'
+   + U.STORE_APPID, U.STORE_URI)
+_det = 'app_detail_info/' + U.STORE_APPID
+_spawned = []
+_real_spawn = U._spawn
+U._spawn = lambda argv: _spawned.append(argv)
+try:
+    _ok, _why = U.open_store()
+    ck('③.跳商店走应用详情页',
+       _ok and any(_det in ' '.join(a) for a in _spawned), (_ok, _spawned[:1]))
+finally:
+    U._spawn = _real_spawn
+_real_present = U.store_present
+U.store_present = lambda: False
+try:
+    _ok2, _why2 = U.open_store()
+    ck('③.没装商店时给出明确提示',
+       (not _ok2) and u'应用商店' in str(_why2), _why2)
+finally:
+    U.store_present = _real_present
+
+U.RAW_MANIFEST = _real_raw
 U.API_HOSTS = _real_hosts
+httpd_raw.shutdown()
+httpd429.shutdown()
 httpd.shutdown()
 httpd2.shutdown()
 
@@ -2655,6 +2735,9 @@ class FakePrompt(UD.PromptDialog):
 
 
 U.API_HOSTS = (LOCAL3, 'http://127.0.0.1:1/unreachable')
+# 这一节测的是接口路径：raw 直链指到不可达，别让线上清单抢在前面
+_raw_bak8 = U.RAW_MANIFEST
+U.RAW_MANIFEST = 'http://127.0.0.1:1/raw-manifest.json'
 
 # --- 8.1 确认更新 -> 下载 -> 交给安装器
 # FakePrompt 顶替 PromptDialog：exec_ 直接返回 choice=update，
@@ -2747,6 +2830,8 @@ app.processEvents()
 ck('⑨.已是最新弹自绘窗', len(FakeMsg.shown) == 1, FakeMsg.shown)
 ck('⑨.文案含"已是最新版本"',
    FakeMsg.shown and u'已是最新版本' in str(FakeMsg.shown[0]), FakeMsg.shown)
+
+U.RAW_MANIFEST = _raw_bak8
 
 # ================= ⑩ 安全 =================
 brand_free = True
@@ -3548,8 +3633,7 @@ ck('⑤5 命令行输出可解析', 'action=save' in p.stdout and 'ini=1' in p.s
 # ---------------------------------------------------------------- ⑥ 与安装脚本的耦合
 import makedeb as MD          # noqa: E402
 CARRY_SRC = open(os.path.join(HERE, 'brl', 'carry.py'), encoding='utf-8').read()
-ck('⑥1 版本号 1.4.9.1', MD.VER == '1.4.9.1'
-   and __import__('brl').__version__ == '1.4.9.1', MD.VER)
+ck('⑥1 版本号与源码一致', MD.VER == __import__('brl').__version__, MD.VER)
 ck('⑥2 preinst 内联的就是这份源码', CARRY_SRC in MD.PREINST)
 _i = MD.PREINST.index('save --home')
 ck('⑥3 存档在 preinst 里、且早于收尾标记', _i > 0
