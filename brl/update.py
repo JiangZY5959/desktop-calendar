@@ -39,6 +39,8 @@ BLOB_URL = 'https://raw.gitcode.com/%s/%s/blobs/%%s/%%s' % (OWNER, REPO)
 API_HOSTS = ('https://api.gitcode.com/api/v5', 'https://gitcode.com/api/v5')
 # 清单的 raw 直链：走文件 CDN，不经过 API，因此不会被接口限流（429）波及。
 # 接口频繁 429 时这条就是主力，接口退居兜底。
+# 刚 push 完的一小段时间可能返回 403「暂不支持预览」或旧内容，属 CDN 刷新延迟，
+# 所以读不到要静默退回接口，别把这条失败当成结论。
 RAW_MANIFEST = ('https://raw.gitcode.com/%s/%s/raw/%s/%s'
                 % (OWNER, REPO, BRANCH, MANIFEST))
 
