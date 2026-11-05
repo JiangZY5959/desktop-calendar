@@ -3708,6 +3708,42 @@ ck('holiday.周末', D.HOLIDAY.is_free(datetime.date(2026,10,17)) is True)   # �
 ck('holiday.2026国庆名', D.HOLIDAY.fest(datetime.date(2026,10,1)) == u'国庆节')
 ck('holiday.2026春节名', D.HOLIDAY.fest(datetime.date(2026,2,17)) == u'春节')
 ck('holiday.内置条数', len(HD.FESTS) >= 15, len(HD.FESTS))
+# ---- 2027（国办发明电〔2026〕10号）：七个节日名 + 放假区间 + 调休上班日
+_HD27 = [('20270101', u'元旦'), ('20270206', u'春节'), ('20270405', u'清明节'),
+         ('20270501', u'劳动节'), ('20270609', u'端午节'), ('20270915', u'中秋节'),
+         ('20271001', u'国庆节')]
+_dt27 = lambda s: datetime.date(int(s[:4]), int(s[4:6]), int(s[6:]))
+ck('holiday.2027七个节日名齐全',
+   all(D.HOLIDAY.fest(_dt27(k)) == n for k, n in _HD27),
+   [(k, D.HOLIDAY.fest(_dt27(k))) for k, n in _HD27 if D.HOLIDAY.fest(_dt27(k)) != n])
+# 每个节日名所在的那一天必须是休息日
+ck('holiday.2027节日当天都放假',
+   all(D.HOLIDAY.is_free(_dt27(k)) is True for k, n in _HD27),
+   [k for k, n in _HD27 if D.HOLIDAY.is_free(_dt27(k)) is not True])
+# 放假区间（首日~末日）整段必须连续休息：春节9天、劳动5天、国庆7天、元旦/清明各3天
+_HDSPAN = [('20270101', '20270103', 3), ('20270205', '20270213', 9),
+           ('20270403', '20270405', 3), ('20270501', '20270505', 5),
+           ('20270609', '20270609', 1), ('20270915', '20270915', 1),
+           ('20271001', '20271007', 7)]
+def _span(a, b):
+    a, b = _dt27(a), _dt27(b)
+    return [a + datetime.timedelta(i) for i in range((b - a).days + 1)]
+_badspan = [(a, b) for a, b, n in _HDSPAN
+            if len(_span(a, b)) != n
+            or not all(D.HOLIDAY.is_free(x) is True for x in _span(a, b))]
+ck('holiday.2027七段假期连续放假且天数对', not _badspan, _badspan)
+# 调休上班日：必须是周末、且判为上班
+_HDDUTY = ['20270131', '20270214', '20270508', '20270926', '20271009']
+ck('holiday.2027调休上班日共5天',
+   all(_dt27(k).weekday() >= 5 and D.HOLIDAY.is_free(_dt27(k)) is False for k in _HDDUTY),
+   [(k, _dt27(k).weekday(), D.HOLIDAY.is_free(_dt27(k))) for k in _HDDUTY
+    if not (_dt27(k).weekday() >= 5 and D.HOLIDAY.is_free(_dt27(k)) is False)])
+ck('holiday.2027放假日共29天',
+   len([k for k in HD.FREE if k.startswith('2027')]) == 29,
+   len([k for k in HD.FREE if k.startswith('2027')]))
+ck('holiday.2027与2026不混（含春节前周日调休）',
+   D.HOLIDAY.is_free(_dt27('20270131')) is False
+   and D.HOLIDAY.is_free(_dt27('20270228')) is True)   # 20270228 是周日且不调休
 ck('themes', len(T.ALL_THEMES) == 8, len(T.ALL_THEMES))
 
 # ---- 主题命名：统一「意象 + 单字颜色」的三字格式，不带“色”字

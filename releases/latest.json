@@ -1,10 +1,10 @@
 {
-  "version": "1.4.9.2",
-  "tag": "v1.4.9.2",
-  "file": "desktop-calendar_1.4.9.2_arm64.deb",
-  "size": 123764,
-  "sha256": "9a740456eaa147fa6b0a686f94347ad4c03b88a84765cad4a4a6cd7cda1dbbb1",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/eb1f950768218b79ed6a36cf6cd31b6d4bb00bc7/releases/desktop-calendar_1.4.9.2_arm64.deb",
-  "released": "2026-10-30",
-  "notes": "· 修好检查更新偶尔失败的问题，不再弹出满屏报错\n· 获取更新信息更稳定，偶发失败也不会反复重试\n· 发现新版本可以直接跳转应用商店更新\n· 也可以继续用软件内更新（需要输入管理员密码）"
+  "version": "1.4.9.3",
+  "tag": "v1.4.9.3",
+  "file": "desktop-calendar_1.4.9.3_arm64.deb",
+  "size": 123892,
+  "sha256": "3d40fb747e1badf48167787cb319c3a3ddf11fbe42a9bd0c5e37955d71d31755",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/14c2f7cf185fff5df9fbb49f84fec598d40a118b/releases/desktop-calendar_1.4.9.3_arm64.deb",
+  "released": "2026-11-05",
+  "notes": "· 新增 2027 年放假安排，日历能显示明年的节假日了\n· 春节 2 月 5 日至 13 日连休 9 天，国庆 10 月 1 日至 7 日连休 7 天\n· 劳动节 5 天，元旦、清明各 3 天，端午、中秋各 1 天\n· 调休上班日 5 天：1 月 31 日、2 月 14 日、5 月 8 日、9 月 26 日、10 月 9 日\n· 数据依据国务院办公厅关于 2027 年部分节假日安排的通知"
 }

@@ -5,20 +5,21 @@
 - 语言：Python 3 + PyQt5
 - 架构：aarch64（LoongArch / x86 只需重新打包，代码无架构相关分支）
 - 许可：MIT
-- 当前版本：**1.4.9.2**
+- 当前版本：**1.4.9.3**
 - 仓库：[GitHub](https://github.com/JiangZY5959/desktop-calendar) ｜ 国内镜像 [GitCode](https://gitcode.com/gcw_6ciOFeue/desktop-calendar)（**两处同步更新**，GitHub Release 附件下载更方便）
 
 ![主界面](screenshots/main.png)
 
 ## 下载
 
-> 1.4.9.2 修了「检查更新」在服务器限流时弹出满屏报错的问题，并且**发现新版本时可以直接跳到应用商店更新**（软件已上架 UOS 应用商店）；想留在软件里更新的，也可以选「软件内更新」。
+> 1.4.9.3 加入了 **2027 年放假安排**（依据国务院办公厅通知）：全年放假 29 天，春节 2 月 5 日至 13 日连休 9 天，国庆 10 月 1 日至 7 日连休 7 天，调休上班日 5 天，日历上照旧标「休」「班」。
+> 上一版（1.4.9.2）修好了「检查更新」在服务器限流时弹出满屏报错的问题，并且**发现新版本时可以直接跳到应用商店更新**（软件已上架 UOS 应用商店）；想留在软件里更新的，也可选「软件内更新」。
 > 安装位置在 `/opt/apps/com.desktop.calendar/`（与桌面图标、自启动项使用同一个 appid），`/usr/share` 下不放实体文件，由系统自动建软链；直接 `sudo dpkg -i` 覆盖安装即可，待办与设置不受影响。
 
 | 来源 | 安装包 | 平台 |
 |---|---|---|
-| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.9.2_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.2/desktop-calendar_1.4.9.2_arm64.deb) | UOS / 飞腾 aarch64 |
-| GitCode 直链（国内） | [desktop-calendar_1.4.9.2_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/eb1f950768218b79ed6a36cf6cd31b6d4bb00bc7/releases/desktop-calendar_1.4.9.2_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.9.3_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.3/desktop-calendar_1.4.9.3_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitCode 直链（国内） | [desktop-calendar_1.4.9.3_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/14c2f7cf185fff5df9fbb49f84fec598d40a118b/releases/desktop-calendar_1.4.9.3_arm64.deb) | UOS / 飞腾 aarch64 |
 
 也可以在 GitHub 的 [Releases 页面](https://github.com/JiangZY5959/desktop-calendar/releases) 直接点附件下载。
 
@@ -29,12 +30,12 @@
 ```bash
 # GitHub
 wget -O calendar.deb \
-  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.2/desktop-calendar_1.4.9.2_arm64.deb
+  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.3/desktop-calendar_1.4.9.3_arm64.deb
 sudo dpkg -i calendar.deb
 
 # 或 GitCode（国内更快）
 wget -O calendar.deb \
-  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/eb1f950768218b79ed6a36cf6cd31b6d4bb00bc7/releases/desktop-calendar_1.4.9.2_arm64.deb
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/14c2f7cf185fff5df9fbb49f84fec598d40a118b/releases/desktop-calendar_1.4.9.3_arm64.deb
 sudo dpkg -i calendar.deb
 ```
 
@@ -169,7 +170,7 @@ python3 make_manifest.py      # 生成 releases/latest.json（版本清单）
 ## 安装
 
 ```bash
-sudo dpkg -i desktop-calendar_1.4.9.2_arm64.deb
+sudo dpkg -i desktop-calendar_1.4.9.3_arm64.deb
 ```
 
 首次安装会弹出**一个**询问窗口（是否开机自启、是否立即运行）；**升级覆盖安装不询问**，并自动完成：另存设置与待办两个文件 → 请旧版本保存退出 → 按指针把两个文件放回 → 打开新版本。
