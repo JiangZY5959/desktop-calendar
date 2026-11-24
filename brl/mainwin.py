@@ -15,11 +15,13 @@ from . import theme as T
 from . import lunar as L
 from . import store as S
 from .caltable import CalTable
+from .todopanel import TodoPanel
 from .todo import (TodoEditDialog, TodoListDialog, REMIND_LEAD, remind_lead)
 from .settings import SettingsDialog
 from .updatedlg import UpdateFlow
 from . import updatedlg as DLG
 from . import x11fix as X11
+from . import guide as G
 
 from . import APP_NAME, __version__ as APP_VER
 
@@ -304,6 +306,13 @@ class MainWindow(QWidget):
         self._lock_shown = False        # 首次显示后落地一次锁定状态
         self._pops = []                 # 提醒弹窗引用列表（防止被 GC 掉）
         self._tb_off = False            # 是否已向窗口管理器声明脱离任务栏
+        # 缩放/移动防抖落盘：拖动右下角手柄只走 resizeEvent，不再依赖
+        # hideEvent/退出时机（关机、注销、被结束进程都不会触发），
+        # 用户反馈的"调好大小重启又变回去"就是这么丢的。停止操作 400ms
+        # 后自动存一次，手柄/窗口鼠标松手也立刻存一次。
+        self._geotimer = QTimer(self)
+        self._geotimer.setSingleShot(True)
+        self._geotimer.timeout.connect(self._save_geo)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setMouseTracking(True)
         self.setWindowTitle(APP_NAME)
@@ -332,25 +341,38 @@ class MainWindow(QWidget):
         top.addWidget(self._b_today)
         top.addStretch(1)
 
-        self._btn_view = self._tool_btn(u'月视图 / 周视图', icon='view')
+        # 常驻待办开关：放在视图按钮左边（用户指定的红框位置），勾选图标
+        self._btn_todo = self._tool_btn(u'显示 / 隐藏常驻待办清单', icon='todo')
+        self._btn_todo.setCheckable(True)
+        self._btn_view = self._tool_btn(u'切换月视图 / 周视图', icon='view')
         self._btn_lock = self._tool_btn(u'锁定 / 解锁窗口', icon='lock')
         self._btn_menu = self._tool_btn(u'菜单（选项设置等）', icon='gear')
         self._btn_close = self._tool_btn(u'隐藏日历（托盘图标可找回）', icon='close')
+        self._btn_todo.clicked.connect(self._on_toggle_todo)
         self._btn_view.clicked.connect(self._on_view)
         self._btn_lock.clicked.connect(self._on_lock)
         self._btn_menu.clicked.connect(lambda: self._menu().exec_(QCursor.pos()))
         self._btn_close.clicked.connect(self.hide)
-        for b in (self._btn_view, self._btn_lock, self._btn_menu, self._btn_close):
+        for b in (self._btn_todo, self._btn_view, self._btn_lock,
+                  self._btn_menu, self._btn_close):
             top.addWidget(b)
             top.addSpacing(2)
         root.addLayout(top)
 
-        # ---- 日历
+        # ---- 主体：左侧常驻待办 + 右侧日历（同一透明底色，紧贴在一起）
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(6)
+        self._todo_panel = TodoPanel(store, self)
+        self._todo_panel.changed.connect(self._reload_todos)
+        body.addWidget(self._todo_panel, 0)
+
         self._cal = CalTable()
         self._cal.daySelected.connect(self._on_select)
         self._cal.dayActivated.connect(self._on_activate)
         self._cal.monthChanged.connect(self._on_month_changed)
-        root.addWidget(self._cal, 1)
+        body.addWidget(self._cal, 1)
+        root.addLayout(body, 1)
 
         # 右下角缩放手柄（无边框窗口需要手动提供）
         self._grip = QSizeGrip(self)
@@ -374,6 +396,9 @@ class MainWindow(QWidget):
         self._cal.set_scale(float(st.value('cal/scale') or 10) / 10.0)
         self._cal.set_month(datetime.date.today())
         self._on_select(datetime.date.today())
+        # 待办面板：套用主题 + 按设置决定默认是否显示（默认开）
+        self._todo_panel.set_theme(self._theme)
+        self._sync_todo_panel()
         w, h = self._default_size()
         self.resize(w, h)
 
@@ -390,7 +415,13 @@ class MainWindow(QWidget):
         self._upd_t = QTimer(self)
         self._upd_t.timeout.connect(self._auto_update)
         self._upd_t.start(3600 * 1000)
-        QTimer.singleShot(5000, self._auto_update)
+        # 本次更新改动较大：装好后首次运行弹一次「新功能速览」。
+        # 放在自动更新检查之前、关掉速览再排检查，免得两个提示窗叠在一起；
+        # 看过之后由 guide.py 落标记，以后启动都走原来那条 5 秒检查。
+        if G.needed(self._store.settings()):
+            QTimer.singleShot(700, self._show_first_run_guide)
+        else:
+            QTimer.singleShot(5000, self._auto_update)
 
         # 开机自启只在安装时问一次（postinst 负责弹窗），程序启动
         # 永不补问：之前这里有"首启补问"，一旦询问标记因为升级恢复、
@@ -506,11 +537,17 @@ class MainWindow(QWidget):
         # 单纯沿用已有存档时不写，免得覆盖用户精心摆好的位置和尺寸。
         if (not size_v or not pos_v) or (sig and sig != cur):
             self._save_geo()
+        # 恢复完成后才允许 resizeEvent 触发自动落盘，避免构造期误写
+        self._geo_ready = True
 
     def resizeEvent(self, ev):
         if hasattr(self, '_grip'):
             self._grip.move(self.width() - 18, self.height() - 18)
         QWidget.resizeEvent(self, ev)
+        # 缩放停下后落盘。初始化阶段 restore_pos 会先 resize 一次，
+        # 那次没必要写（内容也没变），用 _geo_ready 拦住避免反复 sync。
+        if getattr(self, '_geo_ready', False):
+            self._geotimer.start(400)
 
     def hideEvent(self, ev):
         self._save_geo()
@@ -524,7 +561,7 @@ class MainWindow(QWidget):
     # 内置图标键 -> 资源文件名（统一扁平白色风格，避免精灵图裁切）
     ICON_FILES = {'view': 'tool_view.png', 'lock': 'tool_lock.png',
                   'unlock': 'tool_unlock.png', 'gear': 'tool_gear.png',
-                  'close': 'tool_close.png',
+                  'close': 'tool_close.png', 'todo': 'tool_todolist.png',
                   'nav_prev': 'nav_prev.png', 'nav_next': 'nav_next.png'}
 
     def _icon_pix(self, key):
@@ -574,11 +611,13 @@ class MainWindow(QWidget):
         ss = ('QPushButton{background:transparent;border:none;}'
               'QPushButton:hover{background:%s;border-radius:4px;}' % hover)
         for b in (self._b_prev, self._b_next, self._b_today,
-                  self._btn_view, self._btn_lock, self._btn_menu, self._btn_close):
+                  self._btn_todo, self._btn_view, self._btn_lock,
+                  self._btn_menu, self._btn_close):
             b.setStyleSheet(ss)
         self._b_prev.setIcon(QIcon(self._icon_pix('nav_prev')))
         self._b_next.setIcon(QIcon(self._icon_pix('nav_next')))
         self._b_today.setIcon(QIcon(self._icon_pix('nav_today')))
+        self._btn_todo.setIcon(QIcon(self._icon_pix('todo')))
         self._btn_view.setIcon(QIcon(self._icon_pix('view')))
         # 图标表示「当前状态」：未锁定=可移动(开锁图)，已锁定=不可动(上锁图)
         self._btn_lock.setIcon(QIcon(self._icon_pix(
@@ -645,6 +684,9 @@ class MainWindow(QWidget):
         cfg.update(self._color_overrides())
         self._theme = cfg
         self._cal.set_theme(cfg)
+        # 常驻待办面板共用同一套主题配色（含透明度），不另设颜色项
+        if hasattr(self, '_todo_panel'):
+            self._todo_panel.set_theme(cfg)
         self._refresh_chrome()
         self.update()
 
@@ -672,6 +714,7 @@ class MainWindow(QWidget):
         if self._drag is not None:
             self._drag = None
             self._clamp_pos()
+            self._geotimer.stop()
             self._save_geo()
 
     def mouseDoubleClickEvent(self, ev):
@@ -792,18 +835,28 @@ class MainWindow(QWidget):
                         u'%s %s\n%s' % (row.get('date', ''), row.get('remind_time', ''),
                                         row.get('content', '')))
 
+    # ------------------------------------------------ 常驻待办面板
+    def _sync_todo_panel(self, show=None):
+        """按设置显示/隐藏常驻待办面板，并同步工具栏按钮状态。"""
+        if show is None:
+            show = str(self._store.settings().value('ui/todopanel', '1')) == '1'
+        show = bool(show)
+        self._todo_panel.setVisible(show)
+        self._btn_todo.setChecked(show)
+        self._btn_todo.setToolTip(u'隐藏常驻待办清单' if show
+                                  else u'显示常驻待办清单')
+
+    def _on_toggle_todo(self):
+        show = not self._todo_panel.isVisible()
+        st = self._store.settings()
+        st.setValue('ui/todopanel', '1' if show else '0')
+        st.sync()
+        self._sync_todo_panel(show)
+
     # ------------------------------------------------ 视图 / 菜单
     def _on_view(self):
-        m = T.CardMenu(self)
-        for i, name in enumerate((u'月视图', u'周视图')):
-            a = m.addAction(name)
-            a.setCheckable(True)
-            a.setChecked(self._cal.view() == ('month' if i == 0 else 'week'))
-            a.triggered.connect(lambda checked=False, i=i: self._set_view(i))
-        m.addSeparator()
-        a = m.addAction(u'待办清单')
-        a.triggered.connect(self._on_activate)
-        m.exec_(QCursor.pos())
+        """点一下直接切换月/周视图，不再弹菜单；待办清单归工具栏自己的按钮管。"""
+        self._set_view(1 if self._cal.view() == 'month' else 0)
 
     def _set_view(self, i):
         self._cal.set_view('month' if i == 0 else 'week')
@@ -937,6 +990,15 @@ class MainWindow(QWidget):
         return self._updater.check(silent=silent,
                                    parent=parent or self)
 
+    # ------------------------------------------------ 更新后首次运行速览
+    def _show_first_run_guide(self):
+        """一页式新功能速览；看过即打标记，关掉后再排自动更新检查。"""
+        try:
+            G.show_once(self._store.settings(), self)
+        finally:
+            # 速览是模态的，等它关掉再排检查，免得两个提示窗叠在一起
+            QTimer.singleShot(4300, self._auto_update)
+
     def open_settings(self):
         dlg = SettingsDialog(self._store, self)
         dlg.settingChanged.connect(self._on_setting)
@@ -954,6 +1016,8 @@ class MainWindow(QWidget):
                 pass
         elif key == 'ui/theme':
             self._apply_theme()
+        elif key == 'ui/todopanel':
+            self._sync_todo_panel(bool(val))
         elif key == 'color/reset':
             self._apply_theme()
         elif key.startswith('color/'):

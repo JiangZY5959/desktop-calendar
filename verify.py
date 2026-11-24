@@ -849,7 +849,8 @@ ck('时间下拉框有最小宽度(不被挤没)', ed.tm.width() >= ed.tm.minimu
 ed.grab().save(os.path.join(HERE, 'v17_todoedit.png'))
 
 print('== ② 选中可编辑 / 确定后留在清单')
-ck('清单有"编辑待办"按钮', u'_btn_edit = QPushButton(u\'编辑待办\')' in src)
+ck('清单有"编辑"按钮（缩短避免按钮行拥挤）',
+   u'_btn_edit = QPushButton(u\'编辑\')' in src and 'setFixedSize(400, 360)' not in src)
 ck('_add 不再 accept 关闭清单', 'self._store.add(**dlg.result_data)\n            self.reload()' in src)
 ck('_edit 不再 accept 关闭清单', 'self._store.update(tid, **dlg.result_data)\n            self.reload()' in src)
 ck('有"关闭"按钮回到主界面', u"close = QPushButton(u'关闭')" in src)
@@ -918,7 +919,8 @@ for i in range(dlg.list.count()):
 app.processEvents()
 ck('已选中 3 条', len(dlg.list.selectedItems()) == 3,
    str(len(dlg.list.selectedItems())))
-ck('删除按钮显示所选数量', u'删除所选' in dlg._btn_del.text(), dlg._btn_del.text())
+ck('删除按钮显示所选数量', u'删除' in dlg._btn_del.text() and u'3' in dlg._btn_del.text(),
+   dlg._btn_del.text())
 
 # 确认窗已换成自绘的中文窗，这里把 confirm 顶成"点了确定"
 import brl.updatedlg as _UDLG
@@ -943,6 +945,221 @@ for i in [tid0, tid0_check] + (new_id or []):
     if i:
         S.remove(i)
 dlg.deleteLater()
+
+# ---- v1.5.0.0：常驻待办面板 / 已完成状态 / 尺寸防抖 ----
+print('== ⑨ 常驻待办面板（v1.5.0.0）')
+tpsrc = open(os.path.join(HERE, 'brl', 'todopanel.py')).read()
+mwsrc = open(os.path.join(HERE, 'brl', 'mainwin.py')).read()
+dtsrc = open(os.path.join(HERE, 'brl', 'defaults.py')).read()
+setsrc = open(os.path.join(HERE, 'brl', 'settings.py')).read()
+ck('常驻面板模块存在且自绘（不导入 QListWidget 防白底）',
+   'class TodoPanel' in tpsrc and
+   not any('QListWidget' in ln for ln in tpsrc.splitlines()
+           if ln.startswith('from PyQt') or ln.strip().startswith('QListWidget')))
+ck('面板快捷筛选改为今天/本周/本月',
+   "FILTERS = (u'今天', u'本周', u'本月')" in tpsrc and 'def set_filter' in tpsrc)
+ck('完成态下拉已删除，统计条三段本身就是筛选（STATS）',
+   'RANGES' not in tpsrc and 'def set_range' not in tpsrc and
+   "STATS = (u'全部', u'已完成', u'未完成')" in tpsrc and
+   'def set_stat' in tpsrc and 'def _stat_rects' in tpsrc)
+ck('面板标题换思源黑体', u"f.setFamily(u'思源黑体')" in tpsrc)
+ck('视图按钮点击直接切换，不再弹菜单',
+   "self._btn_view.clicked.connect(self._on_view)" in mwsrc and
+   "def _on_view(self):" in mwsrc and "m.addAction(u'待办清单')" not in mwsrc)
+ck('重复待办只显示基准一条（hit_on 按规则展开不复制行）',
+   'def hit_on' in tpsrc and 'repeat_label' in tpsrc)
+ck('面板主题跟随日历（set_theme 复用主题配色）',
+   'def set_theme' in tpsrc and 'gridbgndclr' in tpsrc)
+ck('面板勾选圆圈坐标 cx/cy 不写反（cx 固定、cy 随行）',
+   'cx, cy, rad = 17, y + self.ROW_H / 2.0, 6' in tpsrc)
+ck('主窗口左侧嵌入面板（body 布局里 panel 在 cal 之前）',
+   'body.addWidget(self._todo_panel' in mwsrc and
+   mwsrc.index('body.addWidget(self._todo_panel') < mwsrc.index('body.addWidget(self._cal'))
+ck('工具栏新增待办开关按钮且在视图按钮之前',
+   "self._btn_todo = self._tool_btn" in mwsrc and
+   mwsrc.index('self._btn_todo = self._tool_btn') < mwsrc.index('self._btn_view = self._tool_btn'))
+ck('开关按钮映射 tool_todolist 图标（列表点方案）',
+   "'todo': 'tool_todolist.png'" in mwsrc)
+ck('默认显示常驻面板（defaults + 设置页开关）',
+   "'ui/todopanel': 1" in dtsrc and "chk('ui/todopanel'" in setsrc)
+ck('设置页已删除隐藏已完成开关（改由统计条筛选）',
+   "'todo/hidedone'" not in dtsrc and "'todo/hidedone'" not in setsrc and
+   "'todo/hidedone'" not in mwsrc and "'todo/hidedone'" not in src)
+
+# 实际构造面板，验证筛选与勾选
+from brl.todopanel import TodoPanel
+tp = TodoPanel(S, None)
+tp.resize(248, 600)
+tp.show()
+app.processEvents()
+today = datetime.date.today()
+tid_a = S.add(u'今天待办', date=today.isoformat())
+tid_b = S.add(u'下周待办', date=(today + datetime.timedelta(days=10)).isoformat())
+tp.reload()
+ck('面板默认「全部」能看到今天+下周两条',
+   all(any(r['id'] == i for r in tp._rows) for i in (tid_a, tid_b)))
+tp.set_filter(0)
+ck('切「今天」只剩今天的',
+   any(r['id'] == tid_a for r in tp._rows) and
+   not any(r['id'] == tid_b for r in tp._rows))
+tp.set_filter(-1)   # 再点已选中 chip 可取消时间限制
+tp.set_stat(0)      # 统计条「共 N 项」= 全部
+ck('点已选中的 chip 取消时间限制', tp.filter() == -1)
+ck('统计条点「共」能看到今天+下周两条',
+   any(r['id'] == tid_a for r in tp._rows) and
+   any(r['id'] == tid_b for r in tp._rows))
+# 完成态与 chip 正交叠加：今天 + 未完成
+tp.set_filter(0)
+S.update(tid_b, done=1)
+tp.set_stat(2)
+ck('时间chip与统计条正交叠加（今天+未完成）',
+   any(r['id'] == tid_a for r in tp._rows) and
+   not any(r['id'] == tid_b for r in tp._rows))
+tp.set_stat(1)
+ck('点「已完成」时 chip 仍生效，下周已完成项不出现',
+   not any(r['id'] == tid_a for r in tp._rows) and
+   not any(r['id'] == tid_b for r in tp._rows))
+tp.set_filter(-1)
+ck('统计条「已完成」单独作用能看到下周已完成项',
+   any(r['id'] == tid_b for r in tp._rows) and
+   not any(r['id'] == tid_a for r in tp._rows))
+ck('统计三段数字不受完成态筛选影响', tp._stat_counts()[0] == 2)
+tp.set_stat(0)
+S.update(tid_b, done=0)
+tp.reload()
+S.update(tid_a, done=1)
+tp.reload()
+row_a = next(r for r in tp._rows if r['id'] == tid_a)
+tp._toggle_done(row_a)
+ck('点圆圈切换完成态（store.done 反转）', S.get(tid_a)['done'] == 0)
+tp._toggle_done(next(r for r in tp._rows if r['id'] == tid_a))  # 再点回已完成
+ck('再点一次恢复已完成', S.get(tid_a)['done'] == 1)
+S.remove(tid_a); S.remove(tid_b)
+tp.deleteLater()
+
+print('== ⑨b 界面微调（v1.5.0.1）')
+ck('待办标题改名「待办列表」', u"Qt.AlignVCenter, u'待办列表'" in tpsrc)
+ck('统计条显示共/已完成/未完成三项',
+   u'u\'共 %d 项\'' in tpsrc and u'u\'已完成 %d\'' in tpsrc and
+   u'u\'未完成 %d\'' in tpsrc and 'def _stat_counts' in tpsrc)
+ck('剩余天数函数：今日0/未来正/过期负',
+   'def days_left' in tpsrc and 'u\'剩余 %d 天\'' in tpsrc)
+ck('已完成的待办不显示剩余天数',
+   'show_left = (not done and left is not None)' in tpsrc)
+ck('弹窗五个按钮统一 84x28',
+   src.count('setFixedSize(84, 28)') == 5 and 'setMinimumSize(' not in src)
+from brl.todopanel import days_left as _dl
+_td = datetime.date.today()
+ck('days_left 今天=0', _dl({'date': _td.isoformat(), 'repeat': 0}, _td) == 0)
+ck('days_left 3天后=3',
+   _dl({'date': (_td + datetime.timedelta(days=3)).isoformat(), 'repeat': 0}, _td) == 3)
+ck('days_left 过期为负',
+   _dl({'date': (_td - datetime.timedelta(days=5)).isoformat(), 'repeat': 0}, _td) == -5)
+ck('days_left 每周重复今日命中=0',
+   _dl({'date': (_td - datetime.timedelta(days=7)).isoformat(), 'repeat': 3}, _td) == 0)
+ck('新图标文件已生成',
+   os.path.getsize(os.path.join(HERE, 'brl', 'resources', 'icons',
+                                'tool_todolist.png')) > 50)
+
+print('== ⑨d 统计条筛选与编辑窗单选（v1.5.0.3）')
+ck('单次日期文案改为待办日期', u"QLabel(u'待办日期:')" in src and u'到期日期' not in src)
+ck('事项类型改为两个单选按钮（不再用下拉）',
+   'QRadioButton(KINDS[0])' in src and 'QRadioButton(KINDS[1])' in src and
+   'QButtonGroup' in src and 'cb_kind' not in src)
+ck('单选切换用 toggled 信号（回填即时联动）',
+   'rb_single.toggled.connect(self._sync_kind)' in src and
+   'rb_repeat.toggled.connect(self._sync_kind)' in src)
+ck('日历弹窗年份框撑宽（修年份只显示20）',
+   'def style_date_picker' in src and 'qt_calendar_yearedit' in src and
+   'setMinimumWidth(80)' in src and 'style_date_picker(self.dt)' in src and
+   'style_date_picker(self.dt_end)' in src)
+# 实测单选框切换与日历年份宽度
+from brl import todo as TD2
+from PyQt5.QtWidgets import QSpinBox as _SB
+_ed = TD2.TodoEditDialog(S, datetime.date(2026, 11, 24), None)
+_ed.show(); app.processEvents()
+ck('编辑窗默认勾选单次事项', _ed.rb_single.isChecked() and not _ed.rb_repeat.isChecked())
+ck('单次时文案为待办日期、截止/频率隐藏',
+   _ed.lb_date.text() == u'待办日期:' and not _ed.lb_end.isVisible() and
+   not _ed.cb_repeat.isVisible())
+_ed.rb_repeat.setChecked(True); app.processEvents()
+ck('点重复单选即时切换出起止日期+频率',
+   _ed.lb_date.text() == u'开始日期:' and _ed.lb_end.isVisible() and
+   _ed.cb_repeat.isVisible())
+_ed.rb_single.setChecked(True); app.processEvents()
+ck('切回单次即时隐藏起止日期',
+   _ed.lb_date.text() == u'待办日期:' and not _ed.lb_end.isVisible())
+_ye = _ed.dt.calendarWidget().findChild(_SB, 'qt_calendar_yearedit')
+ck('年份 spinbox 最小宽度 >= 80px',
+   _ye is not None and _ye.minimumWidth() >= 80,
+   _ye.minimumWidth() if _ye else -1)
+_ed.deleteLater()
+
+print('== ⑨c 单次/重复与截止日期（v1.5.0.2）')
+stsrc = open(os.path.join(HERE, 'brl', 'store.py')).read()
+ck('store 表新增 end_date 字段', 'end_date TEXT NOT NULL DEFAULT' in stsrc)
+ck('老库自动补列并迁移截止日',
+   'PRAGMA table_info(todo)' in stsrc and 'ALTER TABLE todo ADD COLUMN end_date' in stsrc and
+   'repeat > 0' in stsrc)
+ck('plus_month 月末收敛（1/31→2/28）', 'calendar.monthrange' in stsrc)
+ck('编辑窗按事项类型切换日期区',
+   "KINDS = [u'单次事项', u'重复事项']" in src and 'def _sync_kind' in src)
+ck('重复频率下拉用单层边框样式（无双层视觉）',
+   'def flat_combo_style' in src and 'flat_combo_style()' in src and
+   "setStyleSheet(T.combo_style())" in src)   # 分类/提醒仍用通用样式
+ck('截止日期早于开始日期会被拦截', u'截止日期不能早于开始日期' in src)
+from brl import store as ST2
+from brl.todopanel import hit_on as _hit
+_td2 = datetime.date(2026, 11, 1)
+_tid = ST2.STORE.add(u'__重复验证__', date=_td2.isoformat(), repeat=3,
+                 end_date='2026-11-30')
+ck('重复项截止日内命中', _hit(ST2.STORE.get(_tid), datetime.date(2026, 11, 29)))
+ck('重复项截止日外不命中',
+   not _hit(ST2.STORE.get(_tid), datetime.date(2026, 12, 6)))
+ck('日历角标 for_date 也遵守截止日',
+   not any(r['id'] == _tid for r in ST2.STORE.for_date(datetime.date(2026, 12, 6))))
+ST2.STORE.remove(_tid)
+# 老数据迁移：直接造一张无 end_date 列的老表再实例化 Store
+import sqlite3 as _sq
+import tempfile as _tf
+_old_xdg = os.environ.get('XDG_DATA_HOME')
+_old = _tf.mkdtemp(prefix='dc-old-')
+os.makedirs(os.path.join(_old, 'data'), exist_ok=True)
+os.environ['XDG_DATA_HOME'] = os.path.join(_old, 'data')
+_odb = os.path.join(_old, 'data', 'desktop-calendar', 'calendar.db')
+os.makedirs(os.path.dirname(_odb), exist_ok=True)
+_c = _sq.connect(_odb)
+_c.execute('''CREATE TABLE todo(id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '生活',
+  color TEXT NOT NULL DEFAULT '#FFFFFFFF', italic INTEGER NOT NULL DEFAULT 0,
+  underline INTEGER NOT NULL DEFAULT 0, date TEXT NOT NULL DEFAULT '',
+  repeat INTEGER NOT NULL DEFAULT 0, remind INTEGER NOT NULL DEFAULT 0,
+  remind_time TEXT NOT NULL DEFAULT '09:00', done INTEGER NOT NULL DEFAULT 0,
+  created TEXT NOT NULL DEFAULT '')''')
+_c.execute(u"INSERT INTO todo(content,date,repeat) VALUES('老每周','2026-11-01',3)")
+_c.commit(); _c.close()
+_old_store = ST2.Store()
+_old_row = _old_store.get(1)
+ck('老重复数据迁移为开始日后一个月',
+   _old_row['end_date'] == '2026-12-01', _old_row['end_date'])
+ck('迁移后老重复项仍在截止日内命中',
+   _hit(_old_row, datetime.date(2026, 11, 29)))
+# 恢复原隔离目录，避免影响后续分节
+os.environ['XDG_DATA_HOME'] = _old_xdg
+
+print('== ⑩ 已完成状态（弹窗清单）')
+ck('清单有完成按钮', 'self._btn_done' in src and '_toggle_done_selected' in src)
+ck('右键菜单有标记/取消完成', u'取消完成' in src and u'标记完成' in src)
+ck('清单 reload 不再按隐藏已完成过滤', "st.value('todo/hidedone'" not in src)
+ck('已完成项文字变淡加下划线', 'col.setAlpha(150)' in src and 't[\'done\']' in src)
+
+print('== ⑪ 缩放尺寸防抖落盘（v1.5.0.0）')
+ck('resizeEvent 里启动防抖定时器', 'self._geotimer.start(400)' in mwsrc)
+ck('定时器单次触发并连到保存', 'setSingleShot(True)' in mwsrc and
+   'timeout.connect(self._save_geo)' in mwsrc)
+ck('构造期不误写（_geo_ready 闸门）', '_geo_ready' in mwsrc)
+ck('鼠标松手立即落盘并取消防抖', 'self._geotimer.stop()' in mwsrc and
+   'self._save_geo()' in mwsrc)
 
 print('\n结果: PASS=%d FAIL=%d' % (npass, nfail))
 sys.exit(1 if nfail else 0)
@@ -3310,6 +3527,53 @@ _setsrc = open(os.path.join(HERE, 'brl', 'settings.py'),
 ck('①24 颜色名为星期标题栏背景颜色', u'星期标题栏背景颜色' in _setsrc)
 ck('①25 不再叫周末背景颜色', u'周末背景颜色' not in _setsrc)
 
+# ---------------------------------------------------------------- 更新后首次运行速览
+_gsrc = open(os.path.join(HERE, 'brl', 'guide.py'), encoding='utf-8').read()
+from brl import __version__ as _gver                    # noqa: E402
+ck('首启1 速览模块就位',
+   'class GuideDialog' in _gsrc and 'def show_once' in _gsrc)
+ck('首启2 用版本化标记且看过即写',
+   "SEEN_KEY = 'guide/seen_version'" in _gsrc and
+   'mark_seen(settings)' in _gsrc and 'GUIDE_VER' in _gsrc)
+ck('首启3 速览版本跟随应用版本',
+   "GUIDE_VER = '%s'" % _gver in _gsrc, _gver)
+for _kw in (u'常驻待办', u'月 / 周视图', u'统计', u'单次和重复', u'窗口大小'):
+    ck('首启4 速览提到「%s」' % _kw, _kw in _gsrc)
+ck('首启5 主窗口按标记决定是否弹',
+   'G.needed(' in _mw and 'G.show_once(' in _mw)
+ck('首启6 速览关闭后再排更新检查',
+   '_show_first_run_guide' in _mw and 'singleShot(4300' in _mw)
+ck('首启7 速览不碰自启询问',
+   'autostart' not in _gsrc and 'askinstall' not in _gsrc)
+
+from brl import guide as _G, store as _GS              # noqa: E402
+_stg = _GS.Store()
+_qs = _stg.settings()
+_qs.remove(_G.SEEN_KEY)
+_qs.sync()
+ck('首启8 没看过时需要提示', _G.needed(_qs) is True)
+
+
+class _FakeGuideDlg(object):
+    def __init__(self, parent=None):
+        pass
+
+    def exec_(self):
+        return 1
+
+
+_orig_guide_dlg = _G.GuideDialog
+_G.GuideDialog = _FakeGuideDlg
+try:
+    ck('首启9 首次弹并落标记',
+       _G.show_once(_qs, None) is True and
+       str(_qs.value(_G.SEEN_KEY)) == _G.GUIDE_VER)
+    ck('首启10 再次启动不再弹', _G.show_once(_qs, None) is False)
+finally:
+    _G.GuideDialog = _orig_guide_dlg
+_qs.remove(_G.SEEN_KEY)
+_qs.sync()
+
 # ---------------------------------------------------------------- ② 齿轮菜单
 _i_menu = _mw.index('def _menu(')
 _menu = _mw[_i_menu:_mw.index('def _auto_update(', _i_menu)]
@@ -3878,7 +4142,8 @@ _tdsrc = open(os.path.join(_ROOT, 'todo.py'), encoding='utf-8').read()
 ck('dlg.待办不再用 QMessageBox',
    'QMessageBox' not in _tdsrc.replace(u'系统 QMessageBox', u''))
 ck('dlg.删除确认走自绘窗', u"DLG.confirm(self, u'删除待办', msg, ok=u'删除')" in _tdsrc)
-ck('dlg.提示窗走自绘窗', _tdsrc.count('DLG.info(') == 3, _tdsrc.count('DLG.info('))
+ck('dlg.提示窗走自绘窗', _tdsrc.count('DLG.info(') >= 3,
+   _tdsrc.count('DLG.info('))
 _mwsrc = open(os.path.join(_ROOT, 'mainwin.py'), encoding='utf-8').read()
 ck('dlg.主窗口不再用 QMessageBox', 'QMessageBox' not in _mwsrc)
 import brl.updatedlg as _UD
@@ -3932,6 +4197,39 @@ d.grab().save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shot_tod
 # 天气功能已按用户要求全局移除（1.2.7.0 起）
 ck('weather.模块已移除', not os.path.exists(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brl', 'weather.py')))
+
+# ---- 重复日期兜底（v1.5.0.4）：闰日/月末在缺日月份落到月末最后一天
+from brl.todopanel import hit_on as _hit
+ck('fallback.repeat_day 闰年2/29=29 平年=28',
+   S.repeat_day(29, 2024, 2) == 29 and S.repeat_day(29, 2025, 2) == 28)
+ck('fallback.repeat_day 31号小月=30/2月=28',
+   S.repeat_day(31, 2026, 4) == 30 and S.repeat_day(31, 2026, 2) == 28)
+ck('fallback.闰日年度重复落平年2/28',
+   _hit({'date': '2024-02-29', 'repeat': 1, 'end_date': '2030-12-31'}, datetime.date(2025, 2, 28))
+   and not _hit({'date': '2024-02-29', 'repeat': 1, 'end_date': '2030-12-31'}, datetime.date(2025, 2, 27))
+   and _hit({'date': '2024-02-29', 'repeat': 1, 'end_date': '2030-12-31'}, datetime.date(2028, 2, 29)))
+ck('fallback.31号月度重复落各小月月末',
+   all(_hit({'date': '2026-01-31', 'repeat': 2, 'end_date': '2026-12-31'},
+            datetime.date(2026, m, last))
+       for m, last in ((2, 28), (4, 30), (6, 30), (9, 30), (11, 30), (1, 31))))
+ck('fallback.不会误命中月末前一天',
+   not _hit({'date': '2026-01-31', 'repeat': 2, 'end_date': '2026-12-31'}, datetime.date(2026, 4, 29)))
+# store.for_date 与面板 hit_on 用同一套兜底
+_st_fb = S.Store()
+_fid = _st_fb.add(u'月末兜底测试', date='2026-01-31', repeat=2, end_date='2026-12-31')
+ck('fallback.for_date 与 hit_on 一致（2/28 命中、4/29 不命中）',
+   any(r['id'] == _fid for r in _st_fb.for_date(datetime.date(2026, 2, 28)))
+   and not any(r['id'] == _fid for r in _st_fb.for_date(datetime.date(2026, 4, 29))))
+_st_fb.remove(_fid)
+ck('fallback.提示文案区分闰日/31号/30号/无兜底',
+   u'2 月 29' in S.fallback_reason(1, 29, 2)
+   and u'31 日' in S.fallback_reason(2, 31)
+   and u'30 日' in S.fallback_reason(2, 30)
+   and S.fallback_reason(2, 15) == '')
+_todo_src_fb = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 'brl', 'todo.py'), encoding='utf-8').read()
+ck('fallback.编辑窗保存时提示已接入',
+   'fallback_reason' in _todo_src_fb and '_fallback_noticed' in _todo_src_fb)
 
 print()
 print('FAILED:', fails if fails else 'none')

@@ -1,10 +1,10 @@
 {
-  "version": "1.4.9.3",
-  "tag": "v1.4.9.3",
-  "file": "desktop-calendar_1.4.9.3_arm64.deb",
-  "size": 123892,
-  "sha256": "3d40fb747e1badf48167787cb319c3a3ddf11fbe42a9bd0c5e37955d71d31755",
-  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/14c2f7cf185fff5df9fbb49f84fec598d40a118b/releases/desktop-calendar_1.4.9.3_arm64.deb",
-  "released": "2026-11-05",
-  "notes": "· 新增 2027 年放假安排，日历能显示明年的节假日了\n· 春节 2 月 5 日至 13 日连休 9 天，国庆 10 月 1 日至 7 日连休 7 天\n· 劳动节 5 天，元旦、清明各 3 天，端午、中秋各 1 天\n· 调休上班日 5 天：1 月 31 日、2 月 14 日、5 月 8 日、9 月 26 日、10 月 9 日\n· 数据依据国务院办公厅关于 2027 年部分节假日安排的通知"
+  "version": "1.5.0.5",
+  "tag": "v1.5.0.5",
+  "file": "desktop-calendar_1.5.0.5_arm64.deb",
+  "size": 133476,
+  "sha256": "b00cc5aa6a8558084749bb74f2ba051a722b89a32c7dc52885b8e1e6d2f54d8f",
+  "url": "https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/4d002270faf74de6a15eb1502a63bbbe9cb0cbc6/releases/desktop-calendar_1.5.0.5_arm64.deb",
+  "released": "2026-11-24",
+  "notes": "· 全新常驻待办清单：贴在日历左侧，工具栏按钮一键开关\n· 待办可勾选完成，统计条点击筛选，与今天/本周/本月叠加\n· 新增事项分单次与重复，月末闰日自动兜底、不再漏提醒\n· 窗口大小位置自动记忆，升级保留待办与设置\n· 装好后首次运行弹一次新功能速览，看过即不再提示"
 }

@@ -5,21 +5,27 @@
 - 语言：Python 3 + PyQt5
 - 架构：aarch64（LoongArch / x86 只需重新打包，代码无架构相关分支）
 - 许可：MIT
-- 当前版本：**1.4.9.3**
+- 当前版本：**1.5.0.5**
 - 仓库：[GitHub](https://github.com/JiangZY5959/desktop-calendar) ｜ 国内镜像 [GitCode](https://gitcode.com/gcw_6ciOFeue/desktop-calendar)（**两处同步更新**，GitHub Release 附件下载更方便）
 
 ![主界面](screenshots/main.png)
 
 ## 下载
 
+> 1.5.0.5 更新后首次运行会弹一次「新功能速览」，一次性介绍本次大改版的要点，看过即不再提示。
+> 1.5.0.4 重复待办遇闰日/月末（如 2/29、每月 31 号）会自动落到当月最后一天，不再漏提醒，并在设置时告知原因。
+> 1.5.0.3 待办面板统计条三段可直接点击筛选完成态（与今天/本周/本月叠加）；事项类型改单选按钮、日期弹窗年份完整显示。
+> 1.5.0.2 待办筛选改为「今天/本周/本月」与「全部/已完成/未完成」两组可叠加；新增事项分单次与重复（重复需填起止日期与频率）；去掉设置里的「隐藏已完成」开关。
+> 1.5.0.1 按实测反馈微调待办：按钮行不再挤、视图按钮一键切换月/周、待办标题换思源黑体、筛选改为「今天/本周/本月」加范围下拉。
+> 1.5.0.0 新增 **常驻待办清单**：贴在日历左侧、共用地道主题配色与透明度，可勾选完成、按今天/7天内/全部筛选，工具栏一键开关；同时修复了调整窗口大小后重启失效的问题。
 > 1.4.9.3 加入了 **2027 年放假安排**（依据国务院办公厅通知）：全年放假 29 天，春节 2 月 5 日至 13 日连休 9 天，国庆 10 月 1 日至 7 日连休 7 天，调休上班日 5 天，日历上照旧标「休」「班」。
 > 上一版（1.4.9.2）修好了「检查更新」在服务器限流时弹出满屏报错的问题，并且**发现新版本时可以直接跳到应用商店更新**（软件已上架 UOS 应用商店）；想留在软件里更新的，也可选「软件内更新」。
 > 安装位置在 `/opt/apps/com.desktop.calendar/`（与桌面图标、自启动项使用同一个 appid），`/usr/share` 下不放实体文件，由系统自动建软链；直接 `sudo dpkg -i` 覆盖安装即可，待办与设置不受影响。
 
 | 来源 | 安装包 | 平台 |
 |---|---|---|
-| GitHub Release（推荐，永久地址） | [desktop-calendar_1.4.9.3_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.3/desktop-calendar_1.4.9.3_arm64.deb) | UOS / 飞腾 aarch64 |
-| GitCode 直链（国内） | [desktop-calendar_1.4.9.3_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/14c2f7cf185fff5df9fbb49f84fec598d40a118b/releases/desktop-calendar_1.4.9.3_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitHub Release（推荐，永久地址） | [desktop-calendar_1.5.0.5_arm64.deb](https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.5.0.5/desktop-calendar_1.5.0.5_arm64.deb) | UOS / 飞腾 aarch64 |
+| GitCode 直链（国内） | [desktop-calendar_1.5.0.5_arm64.deb](https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/4d002270faf74de6a15eb1502a63bbbe9cb0cbc6/releases/desktop-calendar_1.5.0.5_arm64.deb) | UOS / 飞腾 aarch64 |
 
 也可以在 GitHub 的 [Releases 页面](https://github.com/JiangZY5959/desktop-calendar/releases) 直接点附件下载。
 
@@ -30,12 +36,12 @@
 ```bash
 # GitHub
 wget -O calendar.deb \
-  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.4.9.3/desktop-calendar_1.4.9.3_arm64.deb
+  https://github.com/JiangZY5959/desktop-calendar/releases/download/v1.5.0.5/desktop-calendar_1.5.0.5_arm64.deb
 sudo dpkg -i calendar.deb
 
 # 或 GitCode（国内更快）
 wget -O calendar.deb \
-  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/14c2f7cf185fff5df9fbb49f84fec598d40a118b/releases/desktop-calendar_1.4.9.3_arm64.deb
+  https://raw.gitcode.com/gcw_6ciOFeue/desktop-calendar/blobs/4d002270faf74de6a15eb1502a63bbbe9cb0cbc6/releases/desktop-calendar_1.5.0.5_arm64.deb
 sudo dpkg -i calendar.deb
 ```
 
@@ -53,11 +59,13 @@ sudo dpkg -i calendar.deb
 - 鼠标滚轮、上下月按钮、今日按钮三种导航
 
 ### 待办与提醒
-- 待办支持标题、颜色标记、完成状态、所属日期
-- 待办清单内可新增、编辑、批量删除（Ctrl / Shift 多选），操作后停留在清单而不是跳回主界面
+- **常驻待办清单**：贴在日历左侧，共用地道主题配色与透明度；工具栏清单按钮一键收起/展开，设置里也可默认关闭
+- **完成态**：待办前面的圆圈可勾选完成（当日弹窗、常驻清单、右键菜单三处均可）；统计条「共 N 项 / 已完成 / 未完成」三段可直接点击筛选，并与「今天 / 本周 / 本月」叠加
+- 新增待办分**单次事项**（填一个待办日期）与**重复事项**（起止日期 + 每年/每月/每周）；月末、闰日遇不存在的日期自动按当月最后一天提醒，并说明原因，不再漏提醒
+- 待办支持标题、颜色标记、斜体/删除线、所属分类；清单内可新增、编辑、批量删除（Ctrl / Shift 多选），操作后停留在清单而不是跳回主界面
 - 日期格子内**逐条列出**当天待办：空间不足时自动逐级缩小字号，尽量全部显示，而不是折叠成"共 N 项"
-- 提醒时间用仿 iOS 的滚轮时间盘选择，精确到分钟
-- 提醒可设为当天或提前一天触发，弹窗跟随当前主题配色；同一条待办同一天只弹一次
+- 提醒时间用仿 iOS 的滚轮时间盘选择，精确到分钟；支持当天、前一天、两天/三天前、一周/两周前、一个月前共 8 档
+- 提醒弹窗跟随当前主题配色、置顶显示；同一条待办同一天只弹一次；跨天自动刷新
 - 待办数据存本地 SQLite，配置文件为 INI，程序目录之外不留垃圾
 
 ### 外观
@@ -120,6 +128,8 @@ sudo dpkg -i calendar.deb
 │   ├── appdata.py          实例登记、缺失补回、旧路径迁移
 │   ├── carry.py            用户数据随身包：升级时把设置与待办各存一个文件再放回
 │   ├── mainwin.py          主窗口：布局、主题应用、提醒检查、锁定
+│   ├── todopanel.py        常驻待办清单（自绘，含完成态筛选与统计条）
+│   ├── guide.py            首次运行新功能速览（版本化标记，只看一次）
 │   ├── caltable.py         日历表格绘制（格子、待办、节日）
 │   ├── settings.py         选项设置对话框（基础 / 背景 / 检查更新）
 │   ├── update.py           检查更新：版本比较、清单拉取、下载校验、调用安装器
@@ -131,7 +141,7 @@ sudo dpkg -i calendar.deb
 │   ├── lunar.py            农历 / 节气计算（纯 Python，1900-2099）
 │   ├── holidays.py         法定节假日与调休数据（依据国务院办公厅年度安排整理）
 │   ├── data.py  store.py  defaults.py  x11fix.py
-│   └── resources/icons/    自制扁平图标（17 个）
+│   └── resources/icons/    自制扁平图标（含常驻清单按钮图标，共 18 个）
 ├── makedeb.py              打包脚本：生成 aarch64 deb（含升级收尾脚本 desktop-calendar-upgrade）
 ├── make_manifest.py        生成 releases/latest.json 版本清单（含 sha256 与 blob 直链）
 ├── verify.py               全量回归验证（按功能分节的单文件套件）
@@ -170,7 +180,7 @@ python3 make_manifest.py      # 生成 releases/latest.json（版本清单）
 ## 安装
 
 ```bash
-sudo dpkg -i desktop-calendar_1.4.9.3_arm64.deb
+sudo dpkg -i desktop-calendar_1.5.0.5_arm64.deb
 ```
 
 首次安装会弹出**一个**询问窗口（是否开机自启、是否立即运行）；**升级覆盖安装不询问**，并自动完成：另存设置与待办两个文件 → 请旧版本保存退出 → 按指针把两个文件放回 → 打开新版本。

@@ -386,6 +386,7 @@ class SettingsDialog(QDialog):
         gl.addWidget(chk('cal/showtips', u'鼠标在格子时弹tips提示', True), 3, 0)
         gl.addWidget(chk('cal/showban', u'显示班假', True), 3, 1)
         gl.addWidget(chk('cal/showweekend', u'高亮周末', True), 4, 0)
+        gl.addWidget(chk('ui/todopanel', u'显示常驻待办清单', True), 5, 0)
         lay.addWidget(grid)
 
         # 第一周起点 + 日历字体大小 + 清单字体大小
